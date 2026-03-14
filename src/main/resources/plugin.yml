@@ -1,0 +1,20 @@
+name: Show Off
+description: Show off your items to your friends!
+main: net.lunapixu.showoff.ShowOff
+version: 0.1.0
+author: LunaPixu
+api-version: '1.21.4'
+depend: []
+commands:
+    showitem:
+        usage: "/showitem"
+        description: Show off the item in your hand!
+        permission: showoff.showitem
+        permission-message: "You do not have permission to show off"
+permissions:
+    showoff.showitem:
+      description: Allows you to flex your item in chat via command
+      default: true
+
+libraries:
+  - org.scala-lang:scala3-library_3:3.7.2
