@@ -1,0 +1,5 @@
+name: ShowOff
+version: '0.1.0'
+main: net.lunapixu.showoff.ShowOff
+description: Show off your items to your friends!
+api-version: '1.21.4'

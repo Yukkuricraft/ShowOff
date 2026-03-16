@@ -10,8 +10,8 @@ import net.kyori.adventure.text.event.HoverEvent
 class ShowItemCommand extends BasicCommand:
   override def execute(commandSourceStack: CommandSourceStack, args: Array[String]): Unit =
     val executor = commandSourceStack.getExecutor()
-    if (executor.getType() != EntityType.PLAYER) then
-      commandSourceStack.getSender().sendMessage("Only players can show off items!")
+    if (executor == null || executor.getType() != EntityType.PLAYER) then
+      commandSourceStack.getSender().sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
       return
 
     val msgColor = NamedTextColor.YELLOW
