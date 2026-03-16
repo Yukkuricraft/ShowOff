@@ -25,12 +25,15 @@ class ShowItemCommand:
           ctx.getSource().getSender().sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
           return 0
 
-        val msgColor = NamedTextColor.YELLOW
-
         val player = executor.asInstanceOf[Player]
         val item = player.getInventory().getItemInMainHand()
+
+        // TODO: Make config to define output text instead of hardcoding strings
+        val msgColor = NamedTextColor.YELLOW
+        val quantity = if (item.getAmount() > 1) Component.text(s"${item.getAmount}x [") else Component.text("[")
         val showOff = Component.text(player.getDisplayName(), msgColor)
-          .append(Component.text(" shows off their ["))
+          .append(Component.text(" shows off their "))
+          .append(quantity)
           .append(item.effectiveName().hoverEvent(item.asHoverEvent()))
           .append(Component.text("]!", msgColor)).hoverEvent(null)
 
