@@ -10,7 +10,6 @@ import net.kyori.adventure.text.*
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
 import org.bukkit.Bukkit
-import org.bukkit.plugin.java.JavaPlugin
 import java.util.regex.*
 import java.io.IOException
 import java.util.zip.DataFormatException
@@ -19,7 +18,7 @@ import scala.collection.mutable.ArrayBuffer
 class Token(idNum: Int):
   val id = idNum
 
-class ShowItemCommand(plugin: JavaPlugin):
+class ShowItemCommand(plugin: ShowOff):
   private def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
       .executes(ctx => showEveryone(ctx))
@@ -29,14 +28,13 @@ class ShowItemCommand(plugin: JavaPlugin):
   private def parseTokens(rawString: String, expectedTokens: Int): Option[ArrayBuffer[String|Token]] =
     val regex = "(.*?)(?<token>%\\d+\\$s)((?:.(?!%\\d+\\$s))*)" // I hate this so much...
     val parsePattern = Pattern.compile(regex)
-    val matcher = parsePattern.matcher(rawString)
 
-    if (!matcher.matches()) then return None
-    val matches = matcher.results()
-    if (matches.count() != expectedTokens) then return None
+    val matcher = parsePattern.matcher(rawString)
+    if (matcher.results().count() != expectedTokens) then return None
+    matcher.reset()
 
     val results = ArrayBuffer[String|Token]()
-    matches.forEach((result) => {
+    matcher.results().forEach((result) => {
       if (!result.group(1).isEmpty()) then results.append(result.group(1))
       results.append(
         Token(Integer.parseInt(
@@ -53,11 +51,14 @@ class ShowItemCommand(plugin: JavaPlugin):
       ctx.getSource().getSender().sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
       return 0
     
-    val config = plugin.getConfig()
+    val config = plugin.config
     val configLoc = "commands.showitem.show-everyone-message"
     val malformedConfigErr = DataFormatException(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
 
-    val everyoneMessage = config.getString(configLoc)
+    val everyoneMessage = config match
+      case Some(conf) => conf.getString(configLoc)
+      case None => throw malformedConfigErr
+
     if (everyoneMessage == null) then
       throw IOException(s"Could not load config value at $configLoc")
 
@@ -70,20 +71,22 @@ class ShowItemCommand(plugin: JavaPlugin):
     val item = player.getInventory().getItemInMainHand()
 
     val msgColor = NamedTextColor.YELLOW
-    val quantity = s"${item.getAmount()}x"
+    val quantity = item.getAmount() match
+      case 1 => ""
+      case _ => s"${item.getAmount()}x"
 
-    val componentBuilder = Component.text("", msgColor)
+    var componentBuilder = Component.text()
     tokenisedMessage.foreach(subStr => subStr match
-      case str: String => componentBuilder.append(Component.text(str, msgColor))
+      case str: String => componentBuilder = componentBuilder.append(Component.text(str, msgColor))
       case token: Token => {
         token.id match
-          case 1 => componentBuilder.append(Component.text(player.getDisplayName(), NamedTextColor.WHITE))
-          case 2 => componentBuilder.append(Component.text(quantity, msgColor))
-          case 3 => componentBuilder.append(item.effectiveName().hoverEvent(item.asHoverEvent()))
+          case 1 => componentBuilder = componentBuilder.append(Component.text(player.getDisplayName(), NamedTextColor.WHITE))
+          case 2 => componentBuilder = componentBuilder.append(Component.text(quantity, msgColor))
+          case 3 => componentBuilder = componentBuilder.append(item.effectiveName().hoverEvent(item.asHoverEvent()))
           case _ => throw malformedConfigErr
       }
     )
-    val showOff = componentBuilder.compact()
+    val showOff = componentBuilder.build().compact()
 
     Bukkit.getServer().sendMessage(showOff)
     return 1

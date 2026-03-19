@@ -11,10 +11,18 @@ commands:
         description: Show off the item in your hand!
         permission: showoff.showitem
         permission-message: "You do not have permission to show off"
+    reload:
+        usage: "/showoff reload"
+        description: Reload plugin's configs
+        permission: showoff.reload
+        permission-message: "You do not have permission to reload the plugin"
 permissions:
     showoff.showitem:
       description: Allows you to flex your item in chat via command
       default: true
+    showoff.reload:
+      description: Allows you to reload the plugin
+      default: op
 
 libraries:
   - org.scala-lang:scala3-library_3:3.7.2
