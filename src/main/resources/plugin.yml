@@ -1,7 +1,7 @@
 name: ShowOff
 description: Show off your items to your friends!
 main: net.lunapixu.showoff.ShowOff
-version: 0.1.0
+version: 0.1.1
 author: LunaPixu
 api-version: '1.21.4'
 depend: []

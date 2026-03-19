@@ -1,0 +1,5 @@
+commands:
+    showitem:
+        show-everyone-message: "%1$s shows off their %2$s [%3$s]!"
+        show-you-message: "%1$s shows off their %2$s [%3$s] to you!"
+        show-someone-message: "%1$s shows off their %2$s [%3$s] to %4$s!"
