@@ -1,5 +1,11 @@
 commands:
     showitem:
-        show-everyone-message: "%1$s shows off their %2$s [%3$s]!"
-        show-you-message: "%1$s shows off their %2$s [%3$s] to you!"
-        show-someone-message: "%1$s shows off their %2$s [%3$s] to %4$s!"
+        show-everyone-message:
+            single: "%1$s shows off their [%2$s]!"
+            plural: "%1$s shows off their $3$sx [%2$s]!"
+        show-you-message:
+            single: "%1$s shows off their [%2$s] to you!"
+            plural: "%1$s shows off their %3$sx [%2$s] to you!"
+        show-someone-message:
+            single: "%1$s shows off their [%2$s] to %3$s!"
+            plural: "%1$s shows off their %4$sx [%2$s] to %3$s!"

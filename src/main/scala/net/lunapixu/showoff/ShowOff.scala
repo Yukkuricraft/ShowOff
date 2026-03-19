@@ -26,6 +26,6 @@ class ShowOff extends JavaPlugin:
       config = Some(getConfig())
 
       ctx.getSource().getSender().sendMessage("ShowOff config reloaded!")
-      if (ctx.getSource().getSender().isInstanceOf[Player]) then System.out.println("ShowOff config reloaded!")
+      if (ctx.getSource().getSender().isInstanceOf[Player]) then this.getLogger().info("ShowOff config reloaded!")
       1
     })

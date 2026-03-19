@@ -50,9 +50,16 @@ class ShowItemCommand(plugin: ShowOff):
     if !(executor.isInstanceOf[Player]) then
       ctx.getSource().getSender().sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
       return 0
+
+    val player = executor.asInstanceOf[Player]
+    val item = player.getInventory().getItemInMainHand()
+
+    val plural = item.getAmount() > 1
     
     val config = plugin.config
-    val configLoc = "commands.showitem.show-everyone-message"
+    val configLoc = "commands.showitem.show-everyone-message" + (plural match
+      case true => ".plural"
+      case false => ".single")
     val malformedConfigErr = DataFormatException(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
 
     val everyoneMessage = config match
@@ -62,18 +69,16 @@ class ShowItemCommand(plugin: ShowOff):
     if (everyoneMessage == null) then
       throw IOException(s"Could not load config value at $configLoc")
 
+    val tokenNum = plural match
+      case true => 3
+      case false => 2
+
     val tokenisedMessage = ArrayBuffer[String | Token]()
-    parseTokens(everyoneMessage, 3) match
+    parseTokens(everyoneMessage, tokenNum) match
       case Some(tokens) => tokenisedMessage.appendAll(tokens)
       case None => throw malformedConfigErr
-    
-    val player = executor.asInstanceOf[Player]
-    val item = player.getInventory().getItemInMainHand()
 
     val msgColor = NamedTextColor.YELLOW
-    val quantity = item.getAmount() match
-      case 1 => ""
-      case _ => s"${item.getAmount()}x"
 
     var componentBuilder = Component.text()
     tokenisedMessage.foreach(subStr => subStr match
@@ -81,8 +86,8 @@ class ShowItemCommand(plugin: ShowOff):
       case token: Token => {
         token.id match
           case 1 => componentBuilder = componentBuilder.append(Component.text(player.getDisplayName(), NamedTextColor.WHITE))
-          case 2 => componentBuilder = componentBuilder.append(Component.text(quantity, msgColor))
-          case 3 => componentBuilder = componentBuilder.append(item.effectiveName().hoverEvent(item.asHoverEvent()))
+          case 2 => componentBuilder = componentBuilder.append(item.effectiveName().hoverEvent(item.asHoverEvent()))
+          case 3 => componentBuilder = componentBuilder.append(Component.text(item.getAmount(), msgColor))
           case _ => throw malformedConfigErr
       }
     )
