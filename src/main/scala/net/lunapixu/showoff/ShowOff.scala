@@ -16,11 +16,11 @@ class ShowOff extends JavaPlugin:
     config = Some(getConfig())
 
     getLifecycleManager().registerEventHandler(LifecycleEvents.COMMANDS, commands => {
-      commands.registrar().register(ShowItemCommand(this).buildCommand("showoff"))
+      commands.registrar().register(ShowItemCommand(this).buildCommand("showitem"))
       commands.registrar().register(reloadCommand("reload").build())
     })
 
-  private def reloadCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] =
+  def reloadCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] =
     return Commands.literal(commandName).executes(ctx => {
       this.reloadConfig()
       config = Some(getConfig())

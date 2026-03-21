@@ -9,41 +9,49 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import net.kyori.adventure.text.*
 import net.kyori.adventure.text.format.NamedTextColor
 import org.bukkit.entity.Player
+import org.bukkit.inventory.ItemStack
 import org.bukkit.Bukkit
 import java.util.regex.*
 import java.io.IOException
 import java.util.zip.DataFormatException
 import scala.collection.mutable.ArrayBuffer
 
-class Token(idNum: Int):
-  val id = idNum
-
 class ShowItemCommand(plugin: ShowOff):
+  val msgColor = NamedTextColor.YELLOW
+
   private def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
       .executes(ctx => showEveryone(ctx))
 
   def buildCommand(commandName: String): LiteralCommandNode[CommandSourceStack] = createCommand(commandName).build()
 
-  private def parseTokens(rawString: String, expectedTokens: Int): Option[ArrayBuffer[String|Token]] =
+  private def createComponentFromString(rawString: String, componentParts: Component*): Option[Component] =
     val regex = "(.*?)(?<token>%\\d+\\$s)((?:.(?!%\\d+\\$s))*)" // I hate this so much...
     val parsePattern = Pattern.compile(regex)
 
     val matcher = parsePattern.matcher(rawString)
-    if (matcher.results().count() != expectedTokens) then return None
+    if (matcher.results().count() < componentParts.length) then return None
     matcher.reset()
 
-    val results = ArrayBuffer[String|Token]()
-    matcher.results().forEach((result) => {
-      if (!result.group(1).isEmpty()) then results.append(result.group(1))
-      results.append(
-        Token(Integer.parseInt(
-          result.group("token").substring(1, result.group("token").length() - 2)
-        ))
-      )
-      if (!result.group(3).isEmpty()) then results.append(result.group(3))
-    })
-    Some(results)
+    val componentBuilder: TextComponent.Builder = matcher.results().reduce(Component.text(), (comp: TextComponent.Builder, result: MatchResult) => {
+      if (!result.group(1).isEmpty()) then comp.append(Component.text(result.group(1), msgColor))
+
+      val tokenNum = Integer.parseInt(result.group("token").substring(1, result.group("token").length() - 2))
+      comp.append(componentParts(tokenNum - 1))
+
+      if (result.group(3).isEmpty()) then 
+        comp
+      else
+        comp.append(Component.text(result.group(3), msgColor))
+    }, (fullComp: TextComponent.Builder, part: TextComponent.Builder) => fullComp.append(part))
+
+    Some(componentBuilder.build().compact())
+
+  private def playerComponent(player: Player) = 
+    Component.text(player.getDisplayName(), NamedTextColor.WHITE)
+
+  private def itemComponent(item: ItemStack) =
+    item.effectiveName().hoverEvent(item.asHoverEvent())
 
   private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
     val executor = ctx.getSource().getExecutor()
@@ -57,41 +65,29 @@ class ShowItemCommand(plugin: ShowOff):
     val plural = item.getAmount() > 1
     
     val config = plugin.config
-    val configLoc = "commands.showitem.show-everyone-message" + (plural match
-      case true => ".plural"
-      case false => ".single")
-    val malformedConfigErr = DataFormatException(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
-
+    val configLoc = "commands.showitem.show-everyone-message" + (
+      plural match
+        case true => ".plural"
+        case false => ".single"
+    )
     val everyoneMessage = config match
       case Some(conf) => conf.getString(configLoc)
-      case None => throw malformedConfigErr
+      case None => null
 
     if (everyoneMessage == null) then
-      throw IOException(s"Could not load config value at $configLoc")
+      plugin.getLogger().severe(s"Could not load config value at $configLoc")
+      player.sendMessage(Component.text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED))
+      return 0
 
-    val tokenNum = plural match
-      case true => 3
-      case false => 2
-
-    val tokenisedMessage = ArrayBuffer[String | Token]()
-    parseTokens(everyoneMessage, tokenNum) match
-      case Some(tokens) => tokenisedMessage.appendAll(tokens)
-      case None => throw malformedConfigErr
-
-    val msgColor = NamedTextColor.YELLOW
-
-    var componentBuilder = Component.text()
-    tokenisedMessage.foreach(subStr => subStr match
-      case str: String => componentBuilder = componentBuilder.append(Component.text(str, msgColor))
-      case token: Token => {
-        token.id match
-          case 1 => componentBuilder = componentBuilder.append(Component.text(player.getDisplayName(), NamedTextColor.WHITE))
-          case 2 => componentBuilder = componentBuilder.append(item.effectiveName().hoverEvent(item.asHoverEvent()))
-          case 3 => componentBuilder = componentBuilder.append(Component.text(item.getAmount(), msgColor))
-          case _ => throw malformedConfigErr
+    val componentParts = ArrayBuffer(playerComponent(player), itemComponent(item))
+    if (plural) componentParts.append(Component.text(item.getAmount(), msgColor))
+    
+    createComponentFromString(everyoneMessage, (componentParts.toArray)*) match
+      case Some(component) => Bukkit.getServer().sendMessage(component)
+      case None => {
+        plugin.getLogger().severe(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
+        player.sendMessage(Component.text("Error sending message! Please inform a server admin to fix the ShowOff config.yml file.", NamedTextColor.RED))
+        return 0
       }
-    )
-    val showOff = componentBuilder.build().compact()
-
-    Bukkit.getServer().sendMessage(showOff)
+      
     return 1
