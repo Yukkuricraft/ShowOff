@@ -54,13 +54,23 @@ class ShowItemCommand(plugin: ShowOff):
     item.effectiveName().hoverEvent(item.asHoverEvent())
 
   private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
+    val sender = ctx.getSource().getSender()
     val executor = ctx.getSource().getExecutor()
     if !(executor.isInstanceOf[Player]) then
-      ctx.getSource().getSender().sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
+      sender.sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
       return 0
 
     val player = executor.asInstanceOf[Player]
+    val selfSent = sender.isInstanceOf[Player] && (sender.asInstanceOf[Player].getUniqueId() == player.getUniqueId())
     val item = player.getInventory().getItemInMainHand()
+
+    if (item.isEmpty()) then
+      val emptyMsg = selfSent match
+        case true => "You aren't holding anything to show off!"
+        case false =>  s"${player.getDisplayName()} isn't holding anything to show off!"
+      
+      sender.sendMessage(Component.text(emptyMsg, msgColor))
+      return 0
 
     val plural = item.getAmount() > 1
     
@@ -76,7 +86,7 @@ class ShowItemCommand(plugin: ShowOff):
 
     if (everyoneMessage == null) then
       plugin.getLogger().severe(s"Could not load config value at $configLoc")
-      player.sendMessage(Component.text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED))
+      sender.sendMessage(Component.text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED))
       return 0
 
     val componentParts = ArrayBuffer(playerComponent(player), itemComponent(item))
@@ -86,8 +96,8 @@ class ShowItemCommand(plugin: ShowOff):
       case Some(component) => Bukkit.getServer().sendMessage(component)
       case None => {
         plugin.getLogger().severe(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
-        player.sendMessage(Component.text("Error sending message! Please inform a server admin to fix the ShowOff config.yml file.", NamedTextColor.RED))
+        sender.sendMessage(Component.text("Error sending message! Please inform a server admin to fix the ShowOff config.yml file.", NamedTextColor.RED))
         return 0
       }
-      
+  
     return 1
