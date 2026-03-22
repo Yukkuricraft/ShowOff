@@ -1,13 +1,13 @@
 name: ShowOff
 description: Show off your items to your friends!
 main: net.lunapixu.showoff.ShowOff
-version: 0.1.3
+version: 0.2.0
 author: LunaPixu
 api-version: '1.21.4'
 depend: []
 commands:
     showitem:
-        usage: "/showitem"
+        usage: "/showitem [player]"
         description: Show off the item in your hand!
         permission: showoff.showitem
         permission-message: "You do not have permission to show off"

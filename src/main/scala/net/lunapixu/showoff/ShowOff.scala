@@ -1,12 +1,14 @@
 package net.lunapixu.showoff
 
+import org.bukkit.configuration.file.FileConfiguration
+import org.bukkit.plugin.java.JavaPlugin
+
 import io.papermc.paper.plugin.lifecycle.event.types.LifecycleEvents
 import org.bukkit.event.{EventHandler, Listener}
-import org.bukkit.plugin.java.JavaPlugin
-import org.bukkit.configuration.file.FileConfiguration
-import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
-import com.mojang.brigadier.context.CommandContext
+
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
+import com.mojang.brigadier.context.CommandContext
+import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
 import org.bukkit.entity.Player
 
 class ShowOff extends JavaPlugin:
