@@ -19,7 +19,7 @@ commands:
 permissions:
     showoff.showitem:
       description: Allows you to flex your item in chat via command
-      default: true
+      default: notop
     showoff.reload:
       description: Allows you to reload the plugin
       default: op

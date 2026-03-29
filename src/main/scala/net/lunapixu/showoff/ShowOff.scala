@@ -23,11 +23,13 @@ class ShowOff extends JavaPlugin:
     })
 
   def reloadCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] =
-    return Commands.literal(commandName).executes(ctx => {
-      this.reloadConfig()
-      config = Some(getConfig())
+    return Commands.literal(commandName)
+      .requires(source => source.getSender().hasPermission("showoff.reload"))
+      .executes(ctx => {
+        this.reloadConfig()
+        config = Some(getConfig())
 
-      ctx.getSource().getSender().sendMessage("ShowOff config reloaded!")
-      if (ctx.getSource().getSender().isInstanceOf[Player]) then this.getLogger().info("ShowOff config reloaded!")
-      1
-    })
+        ctx.getSource().getSender().sendMessage("ShowOff config reloaded!")
+        if (ctx.getSource().getSender().isInstanceOf[Player]) then this.getLogger().info("ShowOff config reloaded!")
+        1
+      })

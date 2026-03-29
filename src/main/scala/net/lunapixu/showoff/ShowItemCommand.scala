@@ -53,6 +53,7 @@ class ShowItemCommand(plugin: ShowOff):
 
   private def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
+      .requires(source => source.getSender().hasPermission("showoff.showitem"))
       .executes(ctx => showEveryone(ctx))
 
   def buildCommand(commandName: String): LiteralCommandNode[CommandSourceStack] = createCommand(commandName).build()
