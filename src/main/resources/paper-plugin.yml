@@ -2,5 +2,13 @@ name: ShowOff
 version: '0.2.0'
 main: net.lunapixu.showoff.ShowOff
 description: Show off your items to your friends!
+author: 'LunaPixu'
 api-version: '1.21.4'
 loader: net.lunapixu.showoff.ScalaLoader
+permissions:
+  showoff.showitem:
+      description: Allows you to flex your item in chat via command
+      default: true
+  showoff.reload:
+      description: Allows you to reload the plugin
+      default: op

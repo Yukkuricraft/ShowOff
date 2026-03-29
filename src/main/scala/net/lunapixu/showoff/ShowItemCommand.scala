@@ -11,6 +11,9 @@ import org.bukkit.command.CommandSender
 
 import net.kyori.adventure.text.*
 import net.kyori.adventure.text.format.NamedTextColor
+import net.kyori.adventure.text.minimessage.*
+import net.kyori.adventure.text.minimessage.tag.Tag
+import net.kyori.adventure.text.minimessage.tag.resolver.{Placeholder, TagResolver}
 import org.bukkit.Bukkit
 import org.bukkit.entity.{Player, Entity}
 import org.bukkit.inventory.ItemStack
@@ -49,8 +52,6 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack]):
     case None => false
     
 class ShowItemCommand(plugin: ShowOff):
-  val msgColor = NamedTextColor.YELLOW
-
   private def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
       .requires(source => source.getSender().hasPermission("showoff.showitem"))
@@ -58,27 +59,9 @@ class ShowItemCommand(plugin: ShowOff):
 
   def buildCommand(commandName: String): LiteralCommandNode[CommandSourceStack] = createCommand(commandName).build()
 
-  private def createComponentFromString(rawString: String, componentParts: Component*): Option[Component] =
-    val regex = "(.*?)(?<token>%\\d+\\$s)((?:.(?!%\\d+\\$s))*)" // I hate this so much...
-    val parsePattern = Pattern.compile(regex)
-
-    val matcher = parsePattern.matcher(rawString)
-    if (matcher.results().count() < componentParts.length) then return None
-    matcher.reset()
-
-    val componentBuilder: TextComponent.Builder = matcher.results().reduce(Component.text(), (comp: TextComponent.Builder, result: MatchResult) => {
-      if (!result.group(1).isEmpty()) then comp.append(Component.text(result.group(1), msgColor))
-
-      val tokenNum = Integer.parseInt(result.group("token").substring(1, result.group("token").length() - 2))
-      comp.append(componentParts(tokenNum - 1))
-
-      if (result.group(3).isEmpty()) then 
-        comp
-      else
-        comp.append(Component.text(result.group(3), msgColor))
-    }, (fullComp: TextComponent.Builder, part: TextComponent.Builder) => fullComp.append(part))
-
-    Some(componentBuilder.build().compact())
+  private def parseMiniMsg(miniMessage: String, player: String, item: Component, quantity: String): Component =
+    val mm = MiniMessage.miniMessage()
+    mm.deserialize(miniMessage, Placeholder.unparsed("player", player), Placeholder.component("item", item), Placeholder.unparsed("quantity", quantity))
 
   private def playerComponent(player: Player) = 
     Component.text(player.getDisplayName(), NamedTextColor.WHITE)
@@ -101,7 +84,7 @@ class ShowItemCommand(plugin: ShowOff):
         case true => "You aren't holding anything to show off!"
         case false =>  s"${executorPlayer.getDisplayName()} isn't holding anything to show off!"
       
-      sender.sendMessage(Component.text(emptyMsg, msgColor))
+      sender.sendMessage(Component.text(emptyMsg, NamedTextColor.YELLOW))
       return 0
 
     val config = plugin.config
@@ -119,15 +102,11 @@ class ShowItemCommand(plugin: ShowOff):
       sender.sendMessage(Component.text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED))
       return 0
 
-    val componentParts = ArrayBuffer(playerComponent(executorPlayer), itemComponent(item))
-    if (context.pluralItems) componentParts.append(Component.text(item.getAmount(), msgColor))
+    val playerName = executorPlayer.getDisplayName()
+    val itemComp = itemComponent(item)
+    val quantityStr = item.getAmount().toString()
     
-    createComponentFromString(everyoneMessage, (componentParts.toArray)*) match
-      case Some(component) => Bukkit.getServer().sendMessage(component)
-      case None => {
-        plugin.getLogger().severe(s"Config value at $configLoc is malformed. Either fix the config.yml file or delete it to generate a fresh one.")
-        sender.sendMessage(Component.text("Error sending message! Please inform a server admin to fix the ShowOff config.yml file.", NamedTextColor.RED))
-        return 0
-      }
+    val message = parseMiniMsg(everyoneMessage, playerName, itemComp, quantityStr)
+    Bukkit.getServer().sendMessage(message)
 
     return 1

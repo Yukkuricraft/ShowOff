@@ -1,11 +1,5 @@
 commands:
     showitem:
         show-everyone-message:
-            single: "%1$s shows off their [%2$s]!"
-            plural: "%1$s shows off their %3$sx [%2$s]!"
-        show-you-message:
-            single: "%1$s shows off their [%2$s] to you!"
-            plural: "%1$s shows off their %3$sx [%2$s] to you!"
-        show-someone-message:
-            single: "%1$s shows off their [%2$s] to %3$s!"
-            plural: "%1$s shows off their %4$sx [%2$s] to %3$s!"
+            single: "<white><player> <yellow>shows off their [<item>]!"
+            plural: "<white><player> <yellow>shows off their <quantity>x [<item>]!"
