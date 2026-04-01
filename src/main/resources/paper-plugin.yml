@@ -1,5 +1,5 @@
 name: ShowOff
-version: '0.2.0'
+version: '0.2.1'
 main: net.lunapixu.showoff.ShowOff
 description: Show off your items to your friends!
 author: 'LunaPixu'

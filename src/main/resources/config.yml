@@ -1,5 +1,9 @@
+# Messages are written in MiniMessage format.
+# On top of the usual tags, ShowOff uses its own tags to represent player, shown item, and quantity.
+# Though absent by default, quantity may be used on the single message if desired.
 commands:
     showitem:
+        always-use-plural: false
         show-everyone-message:
             single: "<white><player> <yellow>shows off their [<item>]!"
             plural: "<white><player> <yellow>shows off their <quantity>x [<item>]!"

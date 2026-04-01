@@ -3,10 +3,7 @@ package net.lunapixu.showoff
 import com.mojang.brigadier.Command
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
-import com.mojang.brigadier.tree.LiteralCommandNode
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
-import io.papermc.paper.command.brigadier.argument.ArgumentTypes
-import io.papermc.paper.command.brigadier.argument.resolvers.selector.PlayerSelectorArgumentResolver
 import org.bukkit.command.CommandSender
 
 import net.kyori.adventure.text.*
@@ -18,9 +15,6 @@ import org.bukkit.Bukkit
 import org.bukkit.entity.{Player, Entity}
 import org.bukkit.inventory.ItemStack
 
-import java.io.IOException
-import java.util.regex.*
-import java.util.zip.DataFormatException
 import scala.collection.mutable.ArrayBuffer
 
 class ShowItemContext(ctx: CommandContext[CommandSourceStack]):
@@ -34,12 +28,6 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack]):
     case true => Some(executor.asInstanceOf[Player])
     case false => None
 
-  val targetPlayer: Option[Player] = try
-    val target = ctx.getArgument("target", classOf[PlayerSelectorArgumentResolver]).resolve(ctx.getSource()).getFirst()
-    Some(target)
-  catch
-    case e: Exception => None
-
   val item: Option[ItemStack] = executorAsPlayer match
     case Some(player) => Some(player.getInventory().getItemInMainHand())
     case None => None
@@ -52,12 +40,10 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack]):
     case None => false
     
 class ShowItemCommand(plugin: ShowOff):
-  private def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
+  def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
       .requires(source => source.getSender().hasPermission("showoff.showitem"))
       .executes(ctx => showEveryone(ctx))
-
-  def buildCommand(commandName: String): LiteralCommandNode[CommandSourceStack] = createCommand(commandName).build()
 
   private def parseMiniMsg(miniMessage: String, player: String, item: Component, quantity: String): Component =
     val mm = MiniMessage.miniMessage()
@@ -87,15 +73,13 @@ class ShowItemCommand(plugin: ShowOff):
       sender.sendMessage(Component.text(emptyMsg, NamedTextColor.YELLOW))
       return 0
 
-    val config = plugin.config
+    val config = plugin.getConfig()
     val configLoc = "commands.showitem.show-everyone-message" + (
-      context.pluralItems match
+      (config.getBoolean("commands.showitem.always-use-plural") || context.pluralItems) match
         case true => ".plural"
         case false => ".single"
     )
-    val everyoneMessage = config match
-      case Some(conf) => conf.getString(configLoc)
-      case None => null
+    val everyoneMessage = config.getString(configLoc)
 
     if (everyoneMessage == null) then
       plugin.getLogger().severe(s"Could not load config value at $configLoc")
