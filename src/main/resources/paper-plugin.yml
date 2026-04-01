@@ -1,10 +1,18 @@
 name: ShowOff
-version: '0.2.1'
+version: '0.3.0'
 main: net.lunapixu.showoff.ShowOff
 description: Show off your items to your friends!
-author: 'LunaPixu'
+author: 'Luna Pixu'
 api-version: '1.21.4'
 loader: net.lunapixu.showoff.ScalaLoader
+
+dependencies:
+    server:
+        DiscordSRV:
+            load: BEFORE
+            required: false
+            join-classpath: true
+
 permissions:
   showoff.showitem:
       description: Allows you to flex your item in chat via command

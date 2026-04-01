@@ -7,3 +7,10 @@ commands:
         show-everyone-message:
             single: "<white><player> <yellow>shows off their [<item>]!"
             plural: "<white><player> <yellow>shows off their <quantity>x [<item>]!"
+
+        # Requires DiscordSRV
+        send-to-discord: true
+        # Standard MiniMessage tags will be ignored. Please use Discord Markdown formatting.
+        discord-message:
+            single: "**<player>** shows off their **[<item>]**!"
+            plural: "**<player>** shows off their **<quantity>x [<item>]**!"
