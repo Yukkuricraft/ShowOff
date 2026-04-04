@@ -1,16 +1,23 @@
-# Messages are written in MiniMessage format.
-# On top of the usual tags, ShowOff uses its own tags to represent player, shown item, and quantity.
-# Though absent by default, quantity may be used on the single message if desired.
 commands:
     showitem:
+        # Always use the plural message below, even with a singular or unstackable item.
         always-use-plural: false
-        show-everyone-message:
+
+        # Messages are written in MiniMessage format. (https://docs.papermc.io/adventure/minimessage/format/)
+        # On top of the usual tags, ShowOff uses its own tags to represent player, shown item, and quantity.
+        # Though absent by default, quantity may be used on the singular message if desired.
+        message:
             single: "<white><player> <yellow>shows off their [<item>]!"
             plural: "<white><player> <yellow>shows off their <quantity>x [<item>]!"
 
-        # Requires DiscordSRV
+        # Attach the shown item's original name to the hover text if it was renamed in an anvil or by modifying the "minecraft:custom_name" component.
+        # If present, the "minecraft:item_name" data component will be selected over the vanilla name.
+        show-original-name: true
+        original-name-hovertext: "<dark_gray><italic:false>[Original name: <name>]"
+
+        # Mirror the /showitem output to your server's main Discord channel // REQUIRES DISCORDSRV
         send-to-discord: true
-        # Standard MiniMessage tags will be ignored. Please use Discord Markdown formatting.
+        # Formatting/styling MiniMessage tags will be ignored. Please use Discord Markdown for formatting.
         discord-message:
-            single: "**<player>** shows off their **[<item>]**!"
-            plural: "**<player>** shows off their **<quantity>x [<item>]**!"
+            single: "**<player>** shows off their **<item>**"
+            plural: "**<player>** shows off their *<quantity>x* **<item>**"

@@ -7,6 +7,8 @@ import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
 import org.bukkit.command.CommandSender
 
 import net.kyori.adventure.text.*
+import net.kyori.adventure.text.event.HoverEvent
+import net.kyori.adventure.text.event.HoverEvent.ShowItem
 import net.kyori.adventure.text.format.*
 import net.kyori.adventure.text.minimessage.*
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
@@ -18,7 +20,16 @@ import org.bukkit.inventory.ItemStack
 import github.scarsz.discordsrv.DiscordSRV
 import github.scarsz.discordsrv.util.{DiscordUtil, MessageUtil}
 
-import scala.collection.mutable.ArrayBuffer
+import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.jdk.CollectionConverters.*
+
+private def getOriginalItemName(item: ItemStack): Component = 
+  val clone = item.asOne()
+  val itemMeta = clone.getItemMeta()
+  itemMeta.customName(null)
+  clone.setItemMeta(itemMeta)
+  clone.effectiveName()
+
 
 class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val sender: CommandSender = ctx.getSource().getSender()
@@ -43,6 +54,15 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val pluralItems: Boolean = item match
     case Some(i) => i.getAmount() > 1 || plugin.getConfig().getBoolean("commands.showitem.always-use-plural")
     case None => false
+  val originalItemName: Option[Component] = item match
+    case Some(i) => Some(getOriginalItemName(i))
+    case None => None
+  val itemNameChanged: Boolean = 
+    if (item.isEmpty || originalItemName.isEmpty) then
+      false
+    else
+      val mm = MiniMessage.miniMessage()
+      mm.serialize(item.get.effectiveName()) != mm.serialize(originalItemName.get)
 
   val isSelfSent: Boolean = executorAsPlayer match
     case Some(player) => sender.isInstanceOf[Player] && (sender.asInstanceOf[Player].getUniqueId() == player.getUniqueId())
@@ -60,8 +80,26 @@ class ShowItemCommand(plugin: ShowOff):
     val mm = MiniMessage.miniMessage()
     mm.deserialize(miniMessage, Placeholder.unparsed("player", player), Placeholder.component("item", item), Placeholder.unparsed("quantity", quantity))
 
-  private def itemComponent(item: ItemStack) =
-    item.effectiveName().hoverEvent(item.asHoverEvent())
+  private def createItemComponent(item: ItemStack, originalName: Option[Component] = None) =
+    val hover = originalName match
+      case Some(name) => createPrependedHoverLore(item, name)
+      case None => item.asHoverEvent()
+    item.effectiveName().hoverEvent(hover)
+
+  private def createPrependedHoverLore(item: ItemStack, originalName: Component): HoverEvent[ShowItem] =
+    val hoverText = plugin.getConfig().getString("commands.showitem.original-name-hovertext")
+    // If the hovertext config line was made empty/blank, stop prepending text and return the default hover event
+    if (hoverText.trim() == "") then
+      return item.asHoverEvent()
+
+    val clone = ItemStack(item)
+    val originalNameText = MiniMessage.miniMessage()
+      .deserialize(hoverText, Placeholder.component("name", originalName))
+    val spacer = Component.text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
+      .decoration(TextDecoration.ITALIC, false)
+    val lore = List[Component](originalNameText).appendedAll(if (item.lore() != null) ListBuffer[Component](spacer).addAll(item.lore().asScala) else List[Component]())
+    clone.lore(lore.asJava)
+    clone.asHoverEvent()
 
   private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
     val context = ShowItemContext(ctx, plugin)
@@ -81,7 +119,7 @@ class ShowItemCommand(plugin: ShowOff):
       return 0
 
     val config = plugin.getConfig()
-    val configLoc = "commands.showitem.show-everyone-message" + (
+    val configLoc = "commands.showitem.message" + (
       if (context.pluralItems) then ".plural"
       else ".single"
     )
@@ -93,7 +131,11 @@ class ShowItemCommand(plugin: ShowOff):
       return 0
 
     val playerName = context.executorName
-    val itemComp = itemComponent(item)
+    val itemComp =
+      if (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) then
+        createItemComponent(item, context.originalItemName)
+      else
+        createItemComponent(item)
     val quantityStr = item.getAmount().toString()
     
     val message = parseMiniMsg(everyoneMessage, playerName, itemComp, quantityStr)
@@ -109,13 +151,17 @@ class ShowItemCommand(plugin: ShowOff):
     val discordPlugin = DiscordSRV.getPlugin()
     val discordChannel = discordPlugin.getMainTextChannel()
     if (discordChannel == null) then
-      plugin.getLogger().info("No Discord channel found. Could not relay show item message to Discord.")
+      plugin.getLogger().fine("No Discord channel found. Could not relay show item message to Discord.")
       return
+    val config = plugin.getConfig()
 
     val playerName = DiscordUtil.escapeMarkdown(context.executorName)
     val itemName = DiscordUtil.escapeMarkdown(
       // I have no earthly idea why this works but I'm not about to start complaining
-      MessageUtil.strip(PlainTextComponentSerializer.plainText().serialize(context.item.get.effectiveName()))
+      (MessageUtil.strip(PlainTextComponentSerializer.plainText().serialize(context.item.get.effectiveName())) + (
+        if (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) then s" (${MessageUtil.strip(PlainTextComponentSerializer.plainText().serialize(context.originalItemName.get))})"
+        else ""
+      ))
     )
     val quantity = context.item.get.getAmount().toString()
 
@@ -123,9 +169,9 @@ class ShowItemCommand(plugin: ShowOff):
       if (context.pluralItems) then ".plural"
       else ".single"
     )
-    val messageFormat = plugin.getConfig().getString(messageLoc)
+    val messageFormat = config.getString(messageLoc)
 
-    val populatedMessage = MiniMessage.miniMessage.deserialize(messageFormat,
+    val populatedMessage = MiniMessage.miniMessage().deserialize(messageFormat,
       Placeholder.unparsed("player", playerName),
       Placeholder.unparsed("item", itemName),
       Placeholder.unparsed("quantity", quantity)
