@@ -23,14 +23,6 @@ import github.scarsz.discordsrv.util.{DiscordUtil, MessageUtil}
 import scala.collection.mutable.{ArrayBuffer, ListBuffer}
 import scala.jdk.CollectionConverters.*
 
-private def getOriginalItemName(item: ItemStack): Component = 
-  val clone = item.asOne()
-  val itemMeta = clone.getItemMeta()
-  itemMeta.customName(null)
-  clone.setItemMeta(itemMeta)
-  clone.effectiveName()
-
-
 class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val sender: CommandSender = ctx.getSource().getSender()
   val senderAsPlayer = sender.isInstanceOf[Player] match
@@ -70,6 +62,13 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
     
   val discordPluginAvailable: Boolean = Bukkit.getPluginManager().isPluginEnabled("DiscordSRV")
 
+  private def getOriginalItemName(item: ItemStack): Component = 
+    val clone = item.asOne()
+    val itemMeta = clone.getItemMeta()
+    itemMeta.customName(null)
+    clone.setItemMeta(itemMeta)
+    clone.effectiveName()
+
 class ShowItemCommand(plugin: ShowOff):
   def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = 
     return Commands.literal(commandName)
@@ -97,6 +96,8 @@ class ShowItemCommand(plugin: ShowOff):
       .deserialize(hoverText, Placeholder.component("name", originalName))
     val spacer = Component.text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
       .decoration(TextDecoration.ITALIC, false)
+    
+    // TODO: Cleanup this lore list builder
     val lore = List[Component](originalNameText).appendedAll(if (item.lore() != null) ListBuffer[Component](spacer).addAll(item.lore().asScala) else List[Component]())
     clone.lore(lore.asJava)
     clone.asHoverEvent()
@@ -149,9 +150,10 @@ class ShowItemCommand(plugin: ShowOff):
     if (!context.discordPluginAvailable) return
 
     val discordPlugin = DiscordSRV.getPlugin()
+    // TODO: Allow server to decide which channel to send messages to
     val discordChannel = discordPlugin.getMainTextChannel()
     if (discordChannel == null) then
-      plugin.getLogger().fine("No Discord channel found. Could not relay show item message to Discord.")
+      plugin.getLogger().warning("No Discord channel found. Could not relay show item message to Discord.")
       return
     val config = plugin.getConfig()
 
@@ -178,4 +180,5 @@ class ShowItemCommand(plugin: ShowOff):
     )
     val plainMessage = populatedMessage.asInstanceOf[TextComponent].content()
 
+    //TODO: Allow for message card support
     DiscordUtil.queueMessage(discordChannel, plainMessage)
