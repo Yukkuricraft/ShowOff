@@ -25,38 +25,41 @@ import scala.jdk.CollectionConverters.*
 
 class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val sender: CommandSender = ctx.getSource().getSender()
-  val senderAsPlayer = sender.isInstanceOf[Player] match
-    case true => Some(sender.asInstanceOf[Player])
-    case false => None
-  val senderName = senderAsPlayer match
-    case Some(player) => player.displayName().asInstanceOf[TextComponent].content()
-    case None => sender.getName()
+  val senderAsPlayer: Option[Player] = sender match
+    case player: Player => Some(player)
+    case _ => None
+  lazy val senderName: String = sender match
+    case player: Player =>
+      val plainText = PlainTextComponentSerializer.plainText
+      plainText.serialize(player.displayName)
+    case _ => sender.getName()
 
   val executor: Entity = ctx.getSource().getExecutor()
-  val executorAsPlayer: Option[Player] = executor.isInstanceOf[Player] match
-    case true => Some(executor.asInstanceOf[Player])
-    case false => None
-  val executorName = executorAsPlayer match
-    case Some(player) => player.displayName().asInstanceOf[TextComponent].content()
-    case None => executor.getName()
+  val executorAsPlayer: Option[Player] = executor match
+    case player: Player => Some(player)
+    case _ => None
+  lazy val executorName: String = executor match
+    case player: Player =>
+      val plainText = PlainTextComponentSerializer.plainText
+      plainText.serialize(player.displayName)
+    case _ => executor.getName()
 
   val item: Option[ItemStack] = executorAsPlayer match
     case Some(player) => Some(player.getInventory().getItemInMainHand())
     case None => None
-  val pluralItems: Boolean = item match
+  lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount() > 1 || plugin.getConfig().getBoolean("commands.showitem.always-use-plural")
     case None => false
-  val originalItemName: Option[Component] = item match
+  lazy val originalItemName: Option[Component] = item match
     case Some(i) => Some(getOriginalItemName(i))
     case None => None
-  val itemNameChanged: Boolean = 
-    if (item.isEmpty || originalItemName.isEmpty) then
-      false
-    else
-      val mm = MiniMessage.miniMessage()
+  lazy val itemNameChanged: Boolean = (item.isDefined && originalItemName.isDefined) match
+    case true =>
+      val mm = MiniMessage.miniMessage
       mm.serialize(item.get.effectiveName()) != mm.serialize(originalItemName.get)
+    case false => false
 
-  val isSelfSent: Boolean = executorAsPlayer match
+  lazy val isSelfSent: Boolean = executorAsPlayer match
     case Some(player) => sender.isInstanceOf[Player] && (sender.asInstanceOf[Player].getUniqueId() == player.getUniqueId())
     case None => false
     
@@ -98,7 +101,10 @@ class ShowItemCommand(plugin: ShowOff):
       .decoration(TextDecoration.ITALIC, false)
     
     // TODO: Cleanup this lore list builder
-    val lore = List[Component](originalNameText).appendedAll(if (item.lore() != null) ListBuffer[Component](spacer).addAll(item.lore().asScala) else List[Component]())
+    val lore = List[Component](originalNameText).appendedAll(item.lore() match
+      case null => List[Component]()
+      case _ => ListBuffer[Component](spacer).addAll(item.lore().asScala)
+    )
     clone.lore(lore.asJava)
     clone.asHoverEvent()
 
@@ -109,9 +115,7 @@ class ShowItemCommand(plugin: ShowOff):
       sender.sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
       return 0
     
-    val item = context.item.get
-
-    if (item.isEmpty()) then
+    if (context.item.isEmpty) then
       val emptyMsg = context.isSelfSent match
         case true => "You aren't holding anything to show off!"
         case false =>  s"${context.executorName} isn't holding anything to show off!"
@@ -119,10 +123,12 @@ class ShowItemCommand(plugin: ShowOff):
       sender.sendMessage(Component.text(emptyMsg, NamedTextColor.YELLOW))
       return 0
 
+    val item = context.item.get
+
     val config = plugin.getConfig()
-    val configLoc = "commands.showitem.message" + (
-      if (context.pluralItems) then ".plural"
-      else ".single"
+    val configLoc = "commands.showitem.message" + ( context.pluralItems.match
+      case true => ".plural"
+      case false => ".single"
     )
     val everyoneMessage = config.getString(configLoc)
 
@@ -132,11 +138,9 @@ class ShowItemCommand(plugin: ShowOff):
       return 0
 
     val playerName = context.executorName
-    val itemComp =
-      if (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) then
-        createItemComponent(item, context.originalItemName)
-      else
-        createItemComponent(item)
+    val itemComp = (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) match
+      case true => createItemComponent(item, context.originalItemName)
+      case false => createItemComponent(item)
     val quantityStr = item.getAmount().toString()
     
     val message = parseMiniMsg(everyoneMessage, playerName, itemComp, quantityStr)
@@ -157,19 +161,21 @@ class ShowItemCommand(plugin: ShowOff):
       return
     val config = plugin.getConfig()
 
+    val plainText = PlainTextComponentSerializer.plainText
     val playerName = DiscordUtil.escapeMarkdown(context.executorName)
     val itemName = DiscordUtil.escapeMarkdown(
-      // I have no earthly idea why this works but I'm not about to start complaining
-      (MessageUtil.strip(PlainTextComponentSerializer.plainText().serialize(context.item.get.effectiveName())) + (
-        if (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) then s" (${MessageUtil.strip(PlainTextComponentSerializer.plainText().serialize(context.originalItemName.get))})"
-        else ""
+      // I know how this works now, but the identation and readability is narsty
+      (MessageUtil.strip(plainText.serialize(context.item.get.effectiveName))
+      + ((config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) match
+        case true => s" (${MessageUtil.strip(plainText.serialize(context.originalItemName.get))})"
+        case false => ""
       ))
     )
     val quantity = context.item.get.getAmount().toString()
 
-    val messageLoc = "commands.showitem.discord-message" + (
-      if (context.pluralItems) then ".plural"
-      else ".single"
+    val messageLoc = "commands.showitem.discord-message" + (context.pluralItems match
+      case true => ".plural"
+      case false => ".single"
     )
     val messageFormat = config.getString(messageLoc)
 
@@ -178,7 +184,6 @@ class ShowItemCommand(plugin: ShowOff):
       Placeholder.unparsed("item", itemName),
       Placeholder.unparsed("quantity", quantity)
     )
-    val plainMessage = populatedMessage.asInstanceOf[TextComponent].content()
 
     //TODO: Allow for message card support
-    DiscordUtil.queueMessage(discordChannel, plainMessage)
+    DiscordUtil.queueMessage(discordChannel, plainText.serialize(populatedMessage))
