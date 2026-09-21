@@ -48,8 +48,10 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
     case _ => executor.getName
 
   val item: Option[ItemStack] = executorAsPlayer match
-    case Some(player) => Some(player.getInventory.getItemInMainHand)
-    case None         => None
+    case Some(player) =>
+      val stack = player.getInventory.getItemInMainHand
+      Option.unless(stack.isEmpty)(stack)
+    case None => None
   lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount > 1 || plugin.getConfig()
         .getBoolean("commands.showitem.always-use-plural")
@@ -114,9 +116,10 @@ class ShowItemCommand(plugin: ShowOff):
       case Some(name) => stripStrTokens(plainText.serialize(name))
       case None       => "ERR: No Name Found!"
 
-    itemName.appendedAll(useOriginalName && context.itemNameChanged match
-      case true  => s" (${originalName})"
-      case false => ""
+    itemName.appendedAll(
+      useOriginalName && context.itemNameChanged match
+        case true  => s" (${originalName})"
+        case false => ""
     )
 
   private def createPrependedHoverLore(
