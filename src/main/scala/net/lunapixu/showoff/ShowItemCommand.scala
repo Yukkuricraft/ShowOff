@@ -3,9 +3,10 @@ package net.lunapixu.showoff
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.Command
-import github.scarsz.discordsrv.util.{DiscordUtil, MessageUtil}
+import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
+import java.util.regex.Pattern
 import net.kyori.adventure.text.*
 import net.kyori.adventure.text.event.HoverEvent
 import net.kyori.adventure.text.event.HoverEvent.ShowItem
@@ -17,8 +18,13 @@ import org.bukkit.command.CommandSender
 import org.bukkit.entity.{Entity, Player}
 import org.bukkit.inventory.ItemStack
 import org.bukkit.Bukkit
-import scala.collection.mutable.{ArrayBuffer, ListBuffer}
+import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
+
+private def stripStrTokens(string: String): String =
+  val tokenRegex = "[&§][\\da-fk-or]" // hehe da fkor :)
+  val stripPattern = Pattern.compile(tokenRegex, Pattern.CASE_INSENSITIVE)
+  stripPattern.matcher(string).replaceAll("")
 
 class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val sender: CommandSender = ctx.getSource.getSender
@@ -28,7 +34,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   lazy val senderName: String = sender match
     case player: Player =>
       val plainText = PlainTextComponentSerializer.plainText
-      plainText.serialize(player.displayName)
+      stripStrTokens(plainText.serialize(player.displayName))
     case _ => sender.getName
 
   val executor: Entity = ctx.getSource.getExecutor
@@ -38,7 +44,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   lazy val executorName: String = executor match
     case player: Player =>
       val plainText = PlainTextComponentSerializer.plainText
-      plainText.serialize(player.displayName)
+      stripStrTokens(plainText.serialize(player.displayName))
     case _ => executor.getName
 
   val item: Option[ItemStack] = executorAsPlayer match
@@ -57,10 +63,10 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
       mm.serialize(item.get.effectiveName) != mm.serialize(originalItemName.get)
     case false => false
 
-  lazy val isSelfSent: Boolean = executorAsPlayer match
-    case Some(player) => sender.isInstanceOf[Player] &&
-      (sender.asInstanceOf[Player].getUniqueId == player.getUniqueId)
-    case None => false
+  lazy val isSelfSent: Boolean = (executorAsPlayer, senderAsPlayer) match
+    case (Some(executorPlayer), Some(senderPlayer)) => senderPlayer.getUniqueId ==
+        executorPlayer.getUniqueId
+    case _ => false
 
   val discordPluginAvailable: Boolean = Bukkit.getPluginManager.isPluginEnabled("DiscordSRV")
 
@@ -99,12 +105,27 @@ class ShowItemCommand(plugin: ShowOff):
       case None       => item.asHoverEvent
     item.effectiveName.hoverEvent(hover)
 
+  private def createPlainItemName(context: ShowItemContext, useOriginalName: Boolean): String =
+    val plainText = PlainTextComponentSerializer.plainText
+    val itemName = context.item match
+      case Some(item) => stripStrTokens(plainText.serialize(item.effectiveName))
+      case None       => "ERR: No Item Found!"
+    val originalName = context.originalItemName match
+      case Some(name) => stripStrTokens(plainText.serialize(name))
+      case None       => "ERR: No Name Found!"
+
+    itemName.appendedAll(useOriginalName && context.itemNameChanged match
+      case true  => s" (${originalName})"
+      case false => ""
+    )
+
   private def createPrependedHoverLore(
     item: ItemStack,
     originalName: Component
   ): HoverEvent[ShowItem] =
     val hoverText = plugin.getConfig.getString("commands.showitem.original-name-hovertext")
-    // If the hovertext config line was made empty/blank, stop prepending text and return the default hover event
+    /* If the hovertext config line was made empty/blank,
+    stop prepending text and return the default hover event */
     if hoverText.trim == "" then return item.asHoverEvent
 
     val clone = ItemStack(item)
@@ -114,7 +135,7 @@ class ShowItemCommand(plugin: ShowOff):
       .text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
       .decoration(TextDecoration.ITALIC, false)
 
-    // TODO: Cleanup this lore list builder
+    // TODO: Try to find a cleaner approach if possible
     val lore = List[Component](originalNameText).appendedAll(
       item.lore match
         case null => List[Component]()
@@ -171,7 +192,7 @@ class ShowItemCommand(plugin: ShowOff):
     1
 
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
-    if (!context.discordPluginAvailable) return
+    if !context.discordPluginAvailable then return
 
     val discordPlugin = DiscordSRV.getPlugin
     // TODO: Allow server to decide which channel to send messages to
@@ -184,20 +205,17 @@ class ShowItemCommand(plugin: ShowOff):
 
     val plainText = PlainTextComponentSerializer.plainText
     val playerName = DiscordUtil.escapeMarkdown(context.executorName)
-    val itemName = DiscordUtil.escapeMarkdown(
-      // I know how this works now, but the identation and readability is narsty
-      MessageUtil.strip(plainText.serialize(context.item.get.effectiveName)) +
-        ((config.getBoolean("commands.showitem.show-original-name") &&
-          context.itemNameChanged) match
-          case true => s" (${MessageUtil.strip(plainText.serialize(context.originalItemName.get))})"
-          case false => "")
-    )
+    val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
+      context,
+      plugin.getConfig.getBoolean("commands.showitem.show-original-name")
+    ))
     val quantity = context.item.get.getAmount.toString
 
-    val messageLoc = "commands.showitem.discord-message" +
-      (context.pluralItems match
+    val messageLoc = "commands.showitem.discord-message".appendedAll(
+      context.pluralItems match
         case true  => ".plural"
-        case false => ".single")
+        case false => ".single"
+    )
     val messageFormat = config.getString(messageLoc)
 
     val populatedMessage = MiniMessage.miniMessage.deserialize(
