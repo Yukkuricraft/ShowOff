@@ -170,7 +170,7 @@ class ShowItemCommand(plugin: ShowOff):
 
     val commandOutput: Either[CommandFail, Component] =
       for
-        // TODO: Consider removing this part and allowing non-players to show items as well
+        // TODO: Consider changing this part to allow non-players to show items as well
         _ <- context.executorAsPlayer.toRight(CommandFail(
           Component.text("Error: Only players can show off items!", NamedTextColor.RED)
         ))
