@@ -6,6 +6,7 @@ import com.mojang.brigadier.Command
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
+import java.util.logging.Level
 import java.util.regex.Pattern
 import net.kyori.adventure.text.*
 import net.kyori.adventure.text.event.HoverEvent
@@ -15,6 +16,7 @@ import net.kyori.adventure.text.minimessage.*
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.command.CommandSender
+import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.entity.{Entity, Player}
 import org.bukkit.inventory.ItemStack
 import org.bukkit.Bukkit
@@ -47,23 +49,20 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
       stripStrTokens(plainText.serialize(player.displayName))
     case _ => executor.getName
 
-  val item: Option[ItemStack] = executorAsPlayer match
-    case Some(player) =>
-      val stack = player.getInventory.getItemInMainHand
-      Option.unless(stack.isEmpty)(stack)
-    case None => None
+  lazy val item: Option[ItemStack] = executorAsPlayer.flatMap(p =>
+    val stack = p.getInventory.getItemInMainHand
+    Option.unless(stack.isEmpty)(stack)
+  )
   lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount > 1 || plugin.getConfig()
         .getBoolean("commands.showitem.always-use-plural")
     case None => false
-  lazy val originalItemName: Option[Component] = item match
-    case Some(i) => Some(getOriginalItemName(i))
-    case None    => None
-  lazy val itemNameChanged: Boolean = (item.isDefined && originalItemName.isDefined) match
-    case true =>
+  lazy val originalItemName: Option[Component] = item.flatMap(i => Some(getOriginalItemName(i)))
+  lazy val itemNameChanged: Boolean = (item, originalItemName) match
+    case (Some(i), Some(originalName)) =>
       val mm = MiniMessage.miniMessage
-      mm.serialize(item.get.effectiveName) != mm.serialize(originalItemName.get)
-    case false => false
+      mm.serialize(i.effectiveName) != mm.serialize(originalName)
+    case _ => false
 
   lazy val isSelfSent: Boolean = (executorAsPlayer, senderAsPlayer) match
     case (Some(executorPlayer), Some(senderPlayer)) => senderPlayer.getUniqueId ==
@@ -78,6 +77,8 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
     itemMeta.customName(null)
     clone.setItemMeta(itemMeta)
     clone.effectiveName
+
+case class CommandFail(feedback: Component, consoleLog: Option[(log: String, level: Level)] = None)
 
 class ShowItemCommand(plugin: ShowOff):
   def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = Commands
@@ -98,10 +99,7 @@ class ShowItemCommand(plugin: ShowOff):
       Placeholder.unparsed("quantity", quantity)
     )
 
-  private def createItemComponent(
-    item: ItemStack,
-    originalName: Option[Component] = None
-  ): Component =
+  private def createItemComponent(item: ItemStack, originalName: Option[Component]): Component =
     val hover = originalName match
       case Some(name) => createPrependedHoverLore(item, name)
       case None       => item.asHoverEvent
@@ -116,11 +114,9 @@ class ShowItemCommand(plugin: ShowOff):
       case Some(name) => stripStrTokens(plainText.serialize(name))
       case None       => "ERR: No Name Found!"
 
-    itemName.appendedAll(
-      useOriginalName && context.itemNameChanged match
-        case true  => s" (${originalName})"
-        case false => ""
-    )
+    itemName + (useOriginalName && context.itemNameChanged).match
+      case true  => s" (${originalName})"
+      case false => ""
 
   private def createPrependedHoverLore(
     item: ItemStack,
@@ -147,52 +143,59 @@ class ShowItemCommand(plugin: ShowOff):
     clone.lore(lore.asJava)
     clone.asHoverEvent
 
-  private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
-    val context = ShowItemContext(ctx, plugin)
-    val sender = context.sender
-    if context.executorAsPlayer.isEmpty then
-      sender
-        .sendMessage(Component.text("Error: Only players can show off items!", NamedTextColor.RED))
-      return 0
+  private def getEmptyMessage(context: ShowItemContext): Component =
+    val emptyMsg = context.isSelfSent match
+      case true  => "You aren't holding anything to show off!"
+      case false => s"${context.executorName} isn't holding anything to show off!"
+    Component.text(emptyMsg, NamedTextColor.YELLOW)
 
-    if context.item.isEmpty then
-      val emptyMsg = context.isSelfSent match
-        case true  => "You aren't holding anything to show off!"
-        case false => s"${context.executorName} isn't holding anything to show off!"
-
-      sender.sendMessage(Component.text(emptyMsg, NamedTextColor.YELLOW))
-      return 0
-
-    val item = context.item.get
-
-    val config = plugin.getConfig()
-    val configLoc = "commands.showitem.message" + context.pluralItems.match
+  private def tryGetShowMessageFormat(
+    config: FileConfiguration,
+    plural: Boolean
+  ): Either[CommandFail, String] =
+    val configLoc = "commands.showitem.message" + plural.match
       case true  => ".plural"
       case false => ".single"
-    val everyoneMessage = config.getString(configLoc)
+    /* The returned Either obj would've been in the for comprehension of ShowEveryone,
+    however the configLoc string only exists here */
+    Option(config.getString(configLoc)).toRight(CommandFail(
+      Component
+        .text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED),
+      Some(s"Could not load config value at $configLoc", Level.SEVERE)
+    ))
 
-    if everyoneMessage == null then
-      plugin.getLogger.severe(s"Could not load config value at $configLoc")
-      sender.sendMessage(
-        Component
-          .text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED)
-      )
-      return 0
+  private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
+    val context = ShowItemContext(ctx, plugin)
+    val config = plugin.getConfig()
 
-    val playerName = context.executorName
-    val itemComp =
-      (config.getBoolean("commands.showitem.show-original-name") && context.itemNameChanged) match
-        case true  => createItemComponent(item, context.originalItemName)
-        case false => createItemComponent(item)
-    val quantityStr = item.getAmount.toString
+    val commandOutput: Either[CommandFail, Component] =
+      for
+        // TODO: Consider removing this part and allowing non-players to show items as well
+        _ <- context.executorAsPlayer.toRight(CommandFail(
+          Component.text("Error: Only players can show off items!", NamedTextColor.RED)
+        ))
+        item <- context.item.toRight(CommandFail(getEmptyMessage(context)))
+        showMessageFormat <- tryGetShowMessageFormat(config, context.pluralItems)
+      yield
+        val playerName = context.executorName
+        val useOriginalItemName = config.getBoolean("commands.showitem.show-original-name") &&
+          context.itemNameChanged
+        val itemComp =
+          createItemComponent(item, context.originalItemName.filter(_ => useOriginalItemName))
+        val quantityStr = item.getAmount.toString
 
-    val message = parseMiniMsg(everyoneMessage, playerName, itemComp, quantityStr)
-    Bukkit.getServer.sendMessage(message)
+        parseMiniMsg(showMessageFormat, playerName, itemComp, quantityStr)
 
-    if context.discordPluginAvailable && config.getBoolean("commands.showitem.send-to-discord") then
-      broadcastItemToDiscord(context)
-
-    1
+    commandOutput match
+      case Right(message) =>
+        Bukkit.getServer.sendMessage(message)
+        if context.discordPluginAvailable && config.getBoolean("commands.showitem.send-to-discord")
+        then broadcastItemToDiscord(context)
+        1
+      case Left(fail) =>
+        context.sender.sendMessage(fail.feedback)
+        fail.consoleLog.foreach(l => plugin.getLogger.log(l.level, l.log))
+        0
 
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
     if !context.discordPluginAvailable then return
@@ -214,11 +217,9 @@ class ShowItemCommand(plugin: ShowOff):
     ))
     val quantity = context.item.get.getAmount.toString
 
-    val messageLoc = "commands.showitem.discord-message".appendedAll(
-      context.pluralItems match
-        case true  => ".plural"
-        case false => ".single"
-    )
+    val messageLoc = "commands.showitem.discord-message" + context.pluralItems.match
+      case true  => ".plural"
+      case false => ".single"
     val messageFormat = config.getString(messageLoc)
 
     val populatedMessage = MiniMessage.miniMessage.deserialize(
