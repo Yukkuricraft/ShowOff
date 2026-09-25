@@ -15,11 +15,11 @@ import net.kyori.adventure.text.format.*
 import net.kyori.adventure.text.minimessage.*
 import net.kyori.adventure.text.minimessage.tag.resolver.Placeholder
 import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
+import org.bukkit.{Bukkit, Nameable}
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.entity.{Entity, Player}
-import org.bukkit.inventory.ItemStack
-import org.bukkit.Bukkit
+import org.bukkit.inventory.{Inventory, ItemStack}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
@@ -33,21 +33,15 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val senderAsPlayer: Option[Player] = sender match
     case player: Player => Some(player)
     case _              => None
-  lazy val senderName: String = sender match
-    case player: Player =>
-      val plainText = PlainTextComponentSerializer.plainText
-      stripStrTokens(plainText.serialize(player.displayName))
-    case _ => sender.getName
+  lazy val senderName: Component = getSenderName(sender)
+  lazy val plainSenderName: String = getPlainName(senderName)
 
   val executor: Entity = ctx.getSource.getExecutor
   val executorAsPlayer: Option[Player] = executor match
     case player: Player => Some(player)
     case _              => None
-  lazy val executorName: String = executor match
-    case player: Player =>
-      val plainText = PlainTextComponentSerializer.plainText
-      stripStrTokens(plainText.serialize(player.displayName))
-    case _ => executor.getName
+  lazy val executorName: Component = getSenderName(executor)
+  lazy val plainExecutorName: String = getPlainName(executorName)
 
   lazy val item: Option[ItemStack] = executorAsPlayer.flatMap(p =>
     val stack = p.getInventory.getItemInMainHand
@@ -71,6 +65,15 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
 
   val discordPluginAvailable: Boolean = Bukkit.getPluginManager.isPluginEnabled("DiscordSRV")
 
+  private def getSenderName(sender: CommandSender): Component = sender match
+    case p: Player        => p.displayName
+    case e: Nameable      => e.customName
+    case s: CommandSender => s.name
+
+  private def getPlainName(name: Component): String =
+    val plainText = PlainTextComponentSerializer.plainText
+    stripStrTokens(plainText.serialize(name))
+
   private def getOriginalItemName(item: ItemStack): Component =
     val clone = item.asOne
     val itemMeta = clone.getItemMeta
@@ -87,14 +90,14 @@ class ShowItemCommand(plugin: ShowOff):
 
   private def parseMiniMsg(
     miniMessage: String,
-    player: String,
+    player: Component,
     item: Component,
     quantity: String
   ): Component =
     val mm = MiniMessage.miniMessage
     mm.deserialize(
       miniMessage,
-      Placeholder.unparsed("player", player),
+      Placeholder.component("player", player),
       Placeholder.component("item", item),
       Placeholder.unparsed("quantity", quantity)
     )
@@ -134,7 +137,6 @@ class ShowItemCommand(plugin: ShowOff):
       .text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
       .decoration(TextDecoration.ITALIC, false)
 
-    // TODO: Try to find a cleaner approach if possible
     val lore = List[Component](originalNameText).appendedAll(
       item.lore match
         case null => List[Component]()
@@ -143,11 +145,13 @@ class ShowItemCommand(plugin: ShowOff):
     clone.lore(lore.asJava)
     clone.asHoverEvent
 
+  // This will need a considerable revision for the lang update
   private def getEmptyMessage(context: ShowItemContext): Component =
+    val msgColor = NamedTextColor.YELLOW
     val emptyMsg = context.isSelfSent match
-      case true  => "You aren't holding anything to show off!"
-      case false => s"${context.executorName} isn't holding anything to show off!"
-    Component.text(emptyMsg, NamedTextColor.YELLOW)
+      case true  => Component.text("You aren't ", msgColor)
+      case false => context.executorName.append(Component.text(" isn't ", msgColor))
+    emptyMsg.append(Component.text("holding anything to show off!", msgColor))
 
   private def tryGetShowMessageFormat(
     config: FileConfiguration,
@@ -210,7 +214,7 @@ class ShowItemCommand(plugin: ShowOff):
     val config = plugin.getConfig()
 
     val plainText = PlainTextComponentSerializer.plainText
-    val playerName = DiscordUtil.escapeMarkdown(context.executorName)
+    val playerName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
     val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
       context,
       plugin.getConfig.getBoolean("commands.showitem.show-original-name")
