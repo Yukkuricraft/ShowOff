@@ -12,7 +12,7 @@ import io.papermc.paper.command.brigadier.argument.CustomArgumentType
 import java.util.logging.Level
 import java.util.regex.Pattern
 import net.kyori.adventure.text.*
-import net.kyori.adventure.text.event.HoverEvent
+import net.kyori.adventure.text.event.{ClickEvent, HoverEvent}
 import net.kyori.adventure.text.event.HoverEvent.ShowItem
 import net.kyori.adventure.text.format.*
 import net.kyori.adventure.text.minimessage.*
@@ -76,9 +76,10 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val discordPluginAvailable: Boolean = Bukkit.getPluginManager.isPluginEnabled("DiscordSRV")
 
   private def getSenderName(sender: CommandSender): Component = sender match
-    case p: Player        => p.displayName.hoverEvent(p.asHoverEvent)
-    case e: Entity        => e.customName.hoverEvent(e.asHoverEvent)
-    case s: CommandSender => s.name
+    case p: Player => p.displayName.hoverEvent(p.asHoverEvent)
+        .clickEvent(ClickEvent.suggestCommand(s"/tell ${p.getName} "))
+    case e: Entity => Option(e.customName).getOrElse(e.name).hoverEvent(e.asHoverEvent)
+    case s: Any    => s.name
 
   private def getPlainName(name: Component): String =
     val plainText = PlainTextComponentSerializer.plainText
@@ -86,15 +87,15 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
 
   private def getPlayerItem(player: Player, slot: Option[Int]): Option[ItemStack] =
     val stack = slot match
-      case Some(slot) => player.getInventory.getItem(slot - 1)
-      case None       => player.getInventory.getItemInMainHand
-    Option.unless(stack.isEmpty)(stack)
+      case Some(slot) => Option(player.getInventory.getItem(slot - 1))
+      case None       => Option(player.getInventory.getItemInMainHand)
+    stack.filterNot(i => i.isEmpty)
 
   private def getHolderItem(holder: InventoryHolder, slot: Option[Int]): Option[ItemStack] =
     val stack = slot match
-      case Some(slot) => holder.getInventory.getItem(slot - 1)
-      case None       => holder.getInventory.getItem(0)
-    Option.unless(stack.isEmpty)(stack)
+      case Some(slot) => Option(holder.getInventory.getItem(slot - 1))
+      case None       => Option(holder.getInventory.getItem(0))
+    stack.filterNot(i => i.isEmpty)
 
   private def getOriginalItemName(item: ItemStack): Component =
     val clone = item.asOne
@@ -209,8 +210,8 @@ class ShowItemCommand(plugin: ShowOff):
         val playerName = context.executorName
         val useOriginalItemName = config.getBoolean("commands.showitem.show-original-name") &&
           context.itemNameChanged
-        val itemComp =
-          createItemComponent(item, context.originalItemName.filter(_ => useOriginalItemName))
+        val originalName = context.originalItemName.filter(_ => useOriginalItemName)
+        val itemComp = createItemComponent(item, originalName)
         val quantityStr = item.getAmount.toString
 
         parseMiniMsg(showMessageFormat, playerName, itemComp, quantityStr)
@@ -239,7 +240,7 @@ class ShowItemCommand(plugin: ShowOff):
     val config = plugin.getConfig()
 
     val plainText = PlainTextComponentSerializer.plainText
-    val playerName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
+    val executorName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
     val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
       context,
       plugin.getConfig.getBoolean("commands.showitem.show-original-name")
@@ -253,7 +254,7 @@ class ShowItemCommand(plugin: ShowOff):
 
     val populatedMessage = MiniMessage.miniMessage.deserialize(
       messageFormat,
-      Placeholder.unparsed("player", playerName),
+      Placeholder.unparsed("player", executorName),
       Placeholder.unparsed("item", itemName),
       Placeholder.unparsed("quantity", quantity)
     )
