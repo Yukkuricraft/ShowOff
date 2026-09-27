@@ -1,11 +1,14 @@
 package net.lunapixu.showoff
 
+import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.Command
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
+import io.papermc.paper.command.brigadier.argument.resolvers.selector.SelectorArgumentResolver
+import io.papermc.paper.command.brigadier.argument.CustomArgumentType
 import java.util.logging.Level
 import java.util.regex.Pattern
 import net.kyori.adventure.text.*
@@ -19,7 +22,7 @@ import org.bukkit.{Bukkit, Nameable}
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.entity.{Entity, Player}
-import org.bukkit.inventory.{Inventory, ItemStack}
+import org.bukkit.inventory.{Inventory, InventoryHolder, ItemStack}
 import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
@@ -37,16 +40,23 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   lazy val plainSenderName: String = getPlainName(senderName)
 
   val executor: Entity = ctx.getSource.getExecutor
+  val executorAsHolder: Option[Entity & InventoryHolder] = executor match
+    case holder: InventoryHolder => Some(holder)
+    case _                       => None
   val executorAsPlayer: Option[Player] = executor match
     case player: Player => Some(player)
     case _              => None
   lazy val executorName: Component = getSenderName(executor)
   lazy val plainExecutorName: String = getPlainName(executorName)
 
-  lazy val item: Option[ItemStack] = executorAsPlayer.flatMap(p =>
-    val stack = p.getInventory.getItemInMainHand
-    Option.unless(stack.isEmpty)(stack)
-  )
+  lazy val item: Option[ItemStack] =
+    val slot: Option[Int] =
+      try Some(IntegerArgumentType.getInteger(ctx, "slot-number"))
+      catch e => None
+    (executorAsPlayer, executorAsHolder) match
+      case (Some(player), _)    => getPlayerItem(player, slot)
+      case (None, Some(holder)) => getHolderItem(holder, slot)
+      case (None, None)         => None
   lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount > 1 || plugin.getConfig()
         .getBoolean("commands.showitem.always-use-plural")
@@ -66,13 +76,25 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   val discordPluginAvailable: Boolean = Bukkit.getPluginManager.isPluginEnabled("DiscordSRV")
 
   private def getSenderName(sender: CommandSender): Component = sender match
-    case p: Player        => p.displayName
-    case e: Nameable      => e.customName
+    case p: Player        => p.displayName.hoverEvent(p.asHoverEvent)
+    case e: Entity        => e.customName.hoverEvent(e.asHoverEvent)
     case s: CommandSender => s.name
 
   private def getPlainName(name: Component): String =
     val plainText = PlainTextComponentSerializer.plainText
     stripStrTokens(plainText.serialize(name))
+
+  private def getPlayerItem(player: Player, slot: Option[Int]): Option[ItemStack] =
+    val stack = slot match
+      case Some(slot) => player.getInventory.getItem(slot - 1)
+      case None       => player.getInventory.getItemInMainHand
+    Option.unless(stack.isEmpty)(stack)
+
+  private def getHolderItem(holder: InventoryHolder, slot: Option[Int]): Option[ItemStack] =
+    val stack = slot match
+      case Some(slot) => holder.getInventory.getItem(slot - 1)
+      case None       => holder.getInventory.getItem(0)
+    Option.unless(stack.isEmpty)(stack)
 
   private def getOriginalItemName(item: ItemStack): Component =
     val clone = item.asOne
@@ -84,9 +106,13 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
 case class CommandFail(feedback: Component, consoleLog: Option[(log: String, level: Level)] = None)
 
 class ShowItemCommand(plugin: ShowOff):
+  // TODO: Figure out offhand targetting
+  val slotSubCommand = Commands.argument("slot-number", IntegerArgumentType.integer(1, 36))
+    .executes(ctx => showEveryone(ctx))
+
   def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = Commands
     .literal(commandName).requires(source => source.getSender.hasPermission("showoff.showitem"))
-    .executes(ctx => showEveryone(ctx))
+    .executes(ctx => showEveryone(ctx)).`then`(slotSubCommand)
 
   private def parseMiniMsg(
     miniMessage: String,
@@ -174,9 +200,8 @@ class ShowItemCommand(plugin: ShowOff):
 
     val commandOutput: Either[CommandFail, Component] =
       for
-        // TODO: Consider changing this part to allow non-players to show items as well
-        _ <- context.executorAsPlayer.toRight(CommandFail(
-          Component.text("Error: Only players can show off items!", NamedTextColor.RED)
+        holder <- context.executorAsHolder.toRight(CommandFail(
+          Component.text("Error: Entity can't show off items!", NamedTextColor.RED)
         ))
         item <- context.item.toRight(CommandFail(getEmptyMessage(context)))
         showMessageFormat <- tryGetShowMessageFormat(config, context.pluralItems)
