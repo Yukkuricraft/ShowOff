@@ -7,7 +7,6 @@ import com.mojang.brigadier.Command
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
-import io.papermc.paper.command.brigadier.argument.resolvers.selector.SelectorArgumentResolver
 import io.papermc.paper.command.brigadier.argument.CustomArgumentType
 import java.util.logging.Level
 import java.util.regex.Pattern
@@ -31,7 +30,7 @@ private def stripStrTokens(string: String): String =
   val stripPattern = Pattern.compile(tokenRegex, Pattern.CASE_INSENSITIVE)
   stripPattern.matcher(string).replaceAll("")
 
-class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
+class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int], plugin: ShowOff):
   val sender: CommandSender = ctx.getSource.getSender
   val senderAsPlayer: Option[Player] = sender match
     case player: Player => Some(player)
@@ -40,6 +39,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   lazy val plainSenderName: String = getPlainName(senderName)
 
   val executor: Entity = ctx.getSource.getExecutor
+  // Currently unused outside of the item getter as non-player targets are out of scope for plugin rn
   val executorAsHolder: Option[Entity & InventoryHolder] = executor match
     case holder: InventoryHolder => Some(holder)
     case _                       => None
@@ -49,14 +49,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
   lazy val executorName: Component = getSenderName(executor)
   lazy val plainExecutorName: String = getPlainName(executorName)
 
-  lazy val item: Option[ItemStack] =
-    val slot: Option[Int] =
-      try Some(IntegerArgumentType.getInteger(ctx, "slot-number"))
-      catch e => None
-    (executorAsPlayer, executorAsHolder) match
-      case (Some(player), _)    => getPlayerItem(player, slot)
-      case (None, Some(holder)) => getHolderItem(holder, slot)
-      case (None, None)         => None
+  lazy val item: Option[ItemStack] = executorAsHolder.flatMap(holder => getItem(holder, slot))
   lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount > 1 || plugin.getConfig()
         .getBoolean("commands.showitem.always-use-plural")
@@ -85,17 +78,12 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
     val plainText = PlainTextComponentSerializer.plainText
     stripStrTokens(plainText.serialize(name))
 
-  private def getPlayerItem(player: Player, slot: Option[Int]): Option[ItemStack] =
-    val stack = slot match
-      case Some(slot) => Option(player.getInventory.getItem(slot - 1))
-      case None       => Option(player.getInventory.getItemInMainHand)
-    stack.filterNot(i => i.isEmpty)
-
-  private def getHolderItem(holder: InventoryHolder, slot: Option[Int]): Option[ItemStack] =
-    val stack = slot match
-      case Some(slot) => Option(holder.getInventory.getItem(slot - 1))
-      case None       => Option(holder.getInventory.getItem(0))
-    stack.filterNot(i => i.isEmpty)
+  private def getItem(holder: Entity & InventoryHolder, slot: Option[Int]): Option[ItemStack] =
+    val stack = (holder, slot) match
+      case (p: Player, None)    => Option(p.getInventory.getItemInMainHand)
+      case (e: Any, Some(slot)) => Option(e.getInventory.getItem(slot))
+      case (e: Any, None)       => Option(e.getInventory.getItem(0))
+    stack.filterNot(_.isEmpty)
 
   private def getOriginalItemName(item: ItemStack): Component =
     val clone = item.asOne
@@ -105,15 +93,29 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], plugin: ShowOff):
     clone.effectiveName
 
 case class CommandFail(feedback: Component, consoleLog: Option[(log: String, level: Level)] = None)
+type SlotAlias = (name: String, num: Option[Int])
 
 class ShowItemCommand(plugin: ShowOff):
-  // TODO: Figure out offhand targetting
-  val slotSubCommand = Commands.argument("slot-number", IntegerArgumentType.integer(1, 36))
-    .executes(ctx => showEveryone(ctx))
+  private val slotNumName = "slot-number"
+  private val altSlots: List[SlotAlias] = ("hand", None) :: ("offhand", Some(40)) ::
+    ("head", Some(39)) :: ("chest", Some(38)) :: ("legs", Some(37)) :: ("feet", Some(36)) :: Nil
 
-  def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] = Commands
-    .literal(commandName).requires(source => source.getSender.hasPermission("showoff.showitem"))
-    .executes(ctx => showEveryone(ctx)).`then`(slotSubCommand)
+  private val hotbarArg = Commands.argument(slotNumName, IntegerArgumentType.integer(1, 9))
+    .executes(ctx => showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) - 1)))
+  private val nestedHotbarArg = Commands.literal("hotbar").`then`(hotbarArg)
+  private val invArg = Commands.literal("inventory")
+    .`then`(Commands.argument(slotNumName, IntegerArgumentType.integer(1, 27)).executes(ctx =>
+      showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) + 9 - 1))
+    ))
+
+  def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] =
+    val baseCommand = Commands.literal(commandName)
+      .requires(_.getSender.hasPermission("showoff.showitem"))
+      .executes(ctx => showEveryone(ctx, None)).`then`(hotbarArg).`then`(nestedHotbarArg)
+      .`then`(invArg)
+    altSlots.foldLeft(baseCommand)((command, slot) =>
+      command.`then`(Commands.literal(slot.name).executes(ctx => showEveryone(ctx, slot.num)))
+    )
 
   private def parseMiniMsg(
     miniMessage: String,
@@ -164,11 +166,8 @@ class ShowItemCommand(plugin: ShowOff):
       .text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
       .decoration(TextDecoration.ITALIC, false)
 
-    val lore = List[Component](originalNameText).appendedAll(
-      item.lore match
-        case null => List[Component]()
-        case _    => ListBuffer[Component](spacer).addAll(item.lore.asScala)
-    )
+    val lore: List[Component] = originalNameText :: Option(item.lore)
+      .fold(List[Component]())(l => spacer :: l.asScala.toList)
     clone.lore(lore.asJava)
     clone.asHoverEvent
 
@@ -195,14 +194,14 @@ class ShowItemCommand(plugin: ShowOff):
       Some(s"Could not load config value at $configLoc", Level.SEVERE)
     ))
 
-  private def showEveryone(ctx: CommandContext[CommandSourceStack]): Int =
-    val context = ShowItemContext(ctx, plugin)
+  private def showEveryone(ctx: CommandContext[CommandSourceStack], slot: Option[Int]): Int =
+    val context = ShowItemContext(ctx, slot, plugin)
     val config = plugin.getConfig()
 
     val commandOutput: Either[CommandFail, Component] =
       for
-        holder <- context.executorAsHolder.toRight(CommandFail(
-          Component.text("Error: Entity can't show off items!", NamedTextColor.RED)
+        holder <- context.executorAsPlayer.toRight(CommandFail(
+          Component.text("Error: Only players can show off items!", NamedTextColor.RED)
         ))
         item <- context.item.toRight(CommandFail(getEmptyMessage(context)))
         showMessageFormat <- tryGetShowMessageFormat(config, context.pluralItems)

@@ -3,6 +3,7 @@ version: '0.5.0-SNAPSHOT'
 main: net.lunapixu.showoff.ShowOff
 description: Show off your items to your friends!
 author: 'Luna Pixu'
+website: 'https://github.com/Yukkuricraft/ShowOff'
 api-version: '1.21.4'
 loader: net.lunapixu.showoff.ScalaLoader
 
