@@ -5,14 +5,13 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.Command
 import github.scarsz.discordsrv.dependencies.jda.api.entities.{EmbedType, MessageEmbed, TextChannel}
-import github.scarsz.discordsrv.dependencies.jda.api.entities.MessageEmbed.{AuthorInfo, Provider}
+import github.scarsz.discordsrv.dependencies.jda.api.entities.MessageEmbed.AuthorInfo
 import github.scarsz.discordsrv.dependencies.jda.api.MessageBuilder
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
 import io.papermc.paper.command.brigadier.argument.CustomArgumentType
 import java.awt.Color
-import java.time.OffsetDateTime
 import java.util.logging.Level
 import java.util.regex.Pattern
 import net.kyori.adventure.text.*
@@ -35,7 +34,9 @@ private def stripStrTokens(string: String): String =
   val stripPattern = Pattern.compile(tokenRegex, Pattern.CASE_INSENSITIVE)
   stripPattern.matcher(string).replaceAll("")
 
-class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int], plugin: ShowOff):
+class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int])(using
+  config: FileConfiguration
+):
   val sender: CommandSender = ctx.getSource.getSender
   val senderAsPlayer: Option[Player] = sender match
     case player: Player => Some(player)
@@ -56,9 +57,8 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int]
 
   lazy val item: Option[ItemStack] = executorAsHolder.flatMap { holder => getItem(holder, slot) }
   lazy val pluralItems: Boolean = item match
-    case Some(i) => i.getAmount > 1 || plugin.getConfig()
-        .getBoolean("commands.showitem.always-use-plural")
-    case None => false
+    case Some(i) => i.getAmount > 1 || config.getBoolean("commands.showitem.always-use-plural")
+    case None    => false
   lazy val originalItemName: Option[Component] = item.flatMap { i => Some(getOriginalItemName(i)) }
   lazy val itemNameChanged: Boolean = (item, originalItemName) match
     case (Some(i), Some(originalName)) =>
@@ -193,9 +193,8 @@ class ShowItemCommand(plugin: ShowOff):
       case false => context.executorName.append(Component.text(" isn't ", msgColor))
     emptyMsg.append(Component.text("holding anything to show off!", msgColor))
 
-  private def tryGetShowMessageFormat(
-    config: FileConfiguration,
-    plural: Boolean
+  private def tryGetShowMessageFormat(plural: Boolean)(using
+    config: FileConfiguration
   ): Either[CommandFail, String] =
     val configLoc = "commands.showitem.message" + plural.match
       case true  => ".plural"
@@ -209,8 +208,8 @@ class ShowItemCommand(plugin: ShowOff):
     ))
 
   private def showEveryone(ctx: CommandContext[CommandSourceStack], slot: Option[Int]): Int =
-    val context = ShowItemContext(ctx, slot, plugin)
-    val config = plugin.getConfig()
+    given config: FileConfiguration = plugin.getConfig()
+    val context = ShowItemContext(ctx, slot)
 
     val commandOutput: Either[CommandFail, Component] =
       for
@@ -218,7 +217,7 @@ class ShowItemCommand(plugin: ShowOff):
           Component.text("Error: Only players can show off items!", NamedTextColor.RED)
         ))
         item <- context.item.toRight(CommandFail(getEmptyMessage(context)))
-        showMessageFormat <- tryGetShowMessageFormat(config, context.pluralItems)
+        showMessageFormat <- tryGetShowMessageFormat(context.pluralItems)
       yield
         val playerName = context.executorName
         val useOriginalItemName = config.getBoolean("commands.showitem.show-original-name") &&
@@ -241,7 +240,7 @@ class ShowItemCommand(plugin: ShowOff):
         0
 
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
-    val config = plugin.getConfig()
+    given config: FileConfiguration = plugin.getConfig()
     val messageLoc = "commands.showitem.discord-message" + context.pluralItems.match
       case true  => ".plural"
       case false => ".single"
@@ -252,7 +251,7 @@ class ShowItemCommand(plugin: ShowOff):
           .toRight(("Error: Discord plugin not available!", Level.SEVERE))
         player <- context.executorAsPlayer
           .toRight(("No show-off player found. Cannot relay message.", Level.WARNING))
-        discordChannel <- tryGetChannel(config).toRight(
+        discordChannel <- tryGetChannel().toRight(
           ("No Discord channel found. Could not relay show item message to Discord.", Level.WARNING)
         )
         messageFormat <- Option(config.getString(messageLoc))
@@ -284,27 +283,34 @@ class ShowItemCommand(plugin: ShowOff):
       case Left(log) => plugin.getLogger.log(log.level, log.message)
       case Right(_)  => () // Main output is currently already handled
 
-  private def tryGetChannel(config: FileConfiguration): Option[TextChannel] = Option(
+  private def tryGetChannel()(using config: FileConfiguration): Option[TextChannel] = Option(
     config.getString("commands.showitem.discord-channel")
   ).fold(Option(DiscordSRV.getPlugin.getMainTextChannel)) { str =>
     val channels = DiscordUtil.getJda.getTextChannelsByName(str, false).asScala
     Option.unless(channels.isEmpty) { channels(0) }
   }
 
-  private def embedMessage(channel: TextChannel, player: Player, message: String): Unit =
-    val bot = DiscordUtil.getJda.getSelfUser
-    val botName = channel.getGuild.getMember(bot).getNickname
+  private def embedMessage(channel: TextChannel, player: Player, message: String)(using
+    config: FileConfiguration
+  ): Unit =
     val playerHeadUrl = DiscordSRV.getAvatarUrl(player)
+
+    val defaultColor = Color(255, 255, 0)
+    val color = Option(config.getString("commands.showitem.embed-color"))
+      .fold(defaultColor) { str =>
+        try Color.decode(str)
+        catch e => defaultColor
+      }
 
     val embed = MessageEmbed(
       "",
       DiscordUtil.translateEmotes(message),
-      "",
+      "-# *Show off your items with* `/showitem`",
       EmbedType.RICH,
-      OffsetDateTime.now(),
-      Color(0, 255, 0).getRGB, // TODO: Add color option to config
       null,
-      Provider(botName, ""),
+      color.getRGB,
+      null,
+      null,
       AuthorInfo(stripStrTokens(player.getDisplayName), "", playerHeadUrl, playerHeadUrl),
       null,
       null,

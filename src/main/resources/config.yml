@@ -31,3 +31,4 @@ commands:
             plural: "**<player>** shows off their *<quantity>x* **<item>**"
         # Use the Discord embedded message style for showing off items.
         use-embedded-message: false
+        embed-color: "#ffff00"
