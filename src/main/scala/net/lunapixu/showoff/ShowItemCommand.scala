@@ -49,12 +49,12 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int]
   lazy val executorName: Component = getSenderName(executor)
   lazy val plainExecutorName: String = getPlainName(executorName)
 
-  lazy val item: Option[ItemStack] = executorAsHolder.flatMap(holder => getItem(holder, slot))
+  lazy val item: Option[ItemStack] = executorAsHolder.flatMap { holder => getItem(holder, slot) }
   lazy val pluralItems: Boolean = item match
     case Some(i) => i.getAmount > 1 || plugin.getConfig()
         .getBoolean("commands.showitem.always-use-plural")
     case None => false
-  lazy val originalItemName: Option[Component] = item.flatMap(i => Some(getOriginalItemName(i)))
+  lazy val originalItemName: Option[Component] = item.flatMap { i => Some(getOriginalItemName(i)) }
   lazy val itemNameChanged: Boolean = (item, originalItemName) match
     case (Some(i), Some(originalName)) =>
       val mm = MiniMessage.miniMessage
@@ -83,7 +83,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int]
       case (p: Player, None)    => Option(p.getInventory.getItemInMainHand)
       case (e: Any, Some(slot)) => Option(e.getInventory.getItem(slot))
       case (e: Any, None)       => Option(e.getInventory.getItem(0))
-    stack.filterNot(_.isEmpty)
+    stack.filterNot { _.isEmpty }
 
   private def getOriginalItemName(item: ItemStack): Component =
     val clone = item.asOne
@@ -100,22 +100,30 @@ class ShowItemCommand(plugin: ShowOff):
   private val altSlots: List[SlotAlias] = ("hand", None) :: ("offhand", Some(40)) ::
     ("head", Some(39)) :: ("chest", Some(38)) :: ("legs", Some(37)) :: ("feet", Some(36)) :: Nil
 
-  private val hotbarArg = Commands.argument(slotNumName, IntegerArgumentType.integer(1, 9))
-    .executes(ctx => showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) - 1)))
-  private val nestedHotbarArg = Commands.literal("hotbar").`then`(hotbarArg)
+  private val slotArg = Commands.argument(
+    slotNumName,
+    IntegerArgumentType
+      .integer(1, altSlots.foldLeft(0) { (high, curr) => high max curr.num.getOrElse(-1) } + 1)
+  ).executes { ctx =>
+    showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) - 1))
+  }
+  private val hotbarArg = Commands.literal("hotbar")
+    .`then`(Commands.argument(slotNumName, IntegerArgumentType.integer(1, 9)).executes { ctx =>
+      showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) - 1))
+    })
   private val invArg = Commands.literal("inventory")
-    .`then`(Commands.argument(slotNumName, IntegerArgumentType.integer(1, 27)).executes(ctx =>
+    .`then`(Commands.argument(slotNumName, IntegerArgumentType.integer(1, 27)).executes { ctx =>
       showEveryone(ctx, Some(IntegerArgumentType.getInteger(ctx, slotNumName) + 9 - 1))
-    ))
+    })
 
   def createCommand(commandName: String): LiteralArgumentBuilder[CommandSourceStack] =
     val baseCommand = Commands.literal(commandName)
-      .requires(_.getSender.hasPermission("showoff.showitem"))
-      .executes(ctx => showEveryone(ctx, None)).`then`(hotbarArg).`then`(nestedHotbarArg)
-      .`then`(invArg)
-    altSlots.foldLeft(baseCommand)((command, slot) =>
-      command.`then`(Commands.literal(slot.name).executes(ctx => showEveryone(ctx, slot.num)))
-    )
+      .requires { _.getSender.hasPermission("showoff.showitem") }.executes { ctx =>
+        showEveryone(ctx, None)
+      }.`then`(hotbarArg).`then`(slotArg).`then`(invArg)
+    altSlots.foldLeft(baseCommand) { (command, slot) =>
+      command.`then`(Commands.literal(slot.name).executes { ctx => showEveryone(ctx, slot.num) })
+    }
 
   private def parseMiniMsg(
     miniMessage: String,
@@ -166,8 +174,9 @@ class ShowItemCommand(plugin: ShowOff):
       .text("---------", Style.style(NamedTextColor.DARK_GRAY, TextDecoration.BOLD))
       .decoration(TextDecoration.ITALIC, false)
 
-    val lore: List[Component] = originalNameText :: Option(item.lore)
-      .fold(List[Component]())(l => spacer :: l.asScala.toList)
+    val lore: List[Component] = originalNameText :: Option(item.lore).fold(List[Component]()) { l =>
+      spacer :: l.asScala.toList
+    }
     clone.lore(lore.asJava)
     clone.asHoverEvent
 
@@ -191,7 +200,7 @@ class ShowItemCommand(plugin: ShowOff):
     Option(config.getString(configLoc)).toRight(CommandFail(
       Component
         .text("Error loading plugin config! Please inform a server admin.", NamedTextColor.RED),
-      Some(s"Could not load config value at $configLoc", Level.SEVERE)
+      Some(s"Could not load config value at ${configLoc}", Level.SEVERE)
     ))
 
   private def showEveryone(ctx: CommandContext[CommandSourceStack], slot: Option[Int]): Int =
@@ -209,7 +218,7 @@ class ShowItemCommand(plugin: ShowOff):
         val playerName = context.executorName
         val useOriginalItemName = config.getBoolean("commands.showitem.show-original-name") &&
           context.itemNameChanged
-        val originalName = context.originalItemName.filter(_ => useOriginalItemName)
+        val originalName = context.originalItemName.filter { _ => useOriginalItemName }
         val itemComp = createItemComponent(item, originalName)
         val quantityStr = item.getAmount.toString
 
@@ -223,7 +232,7 @@ class ShowItemCommand(plugin: ShowOff):
         1
       case Left(fail) =>
         context.sender.sendMessage(fail.feedback)
-        fail.consoleLog.foreach(l => plugin.getLogger.log(l.level, l.log))
+        fail.consoleLog.foreach { l => plugin.getLogger.log(l.level, l.log) }
         0
 
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
