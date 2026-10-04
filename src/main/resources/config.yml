@@ -17,9 +17,17 @@ commands:
         show-original-name: true
         original-name-hovertext: "<dark_gray><italic:false>[Original name: <name>]"
 
-        # Mirror the /showitem output to your server's main Discord channel // REQUIRES DISCORDSRV
+        # // REQUIRES DISCORDSRV (https://docs.discordsrv.com/) //
+        # Mirror the /showitem output to your server's Discord. 
         send-to-discord: true
+
+        # Select which Discord channel to send messages to. If commented out, your main/global DiscordSRV
+        # channel will be used instead.
+        # discord-channel: "insert channel name here"
+
         # Formatting/styling MiniMessage tags will be ignored. Please use Discord Markdown for formatting.
         discord-message:
             single: "**<player>** shows off their **<item>**"
             plural: "**<player>** shows off their *<quantity>x* **<item>**"
+        # Use the Discord embedded message style for showing off items.
+        use-embedded-message: false

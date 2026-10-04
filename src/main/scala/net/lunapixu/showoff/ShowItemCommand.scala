@@ -4,10 +4,15 @@ import com.mojang.brigadier.arguments.IntegerArgumentType
 import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.Command
+import github.scarsz.discordsrv.dependencies.jda.api.entities.{EmbedType, MessageEmbed, TextChannel}
+import github.scarsz.discordsrv.dependencies.jda.api.entities.MessageEmbed.{AuthorInfo, Provider}
+import github.scarsz.discordsrv.dependencies.jda.api.MessageBuilder
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
 import io.papermc.paper.command.brigadier.argument.CustomArgumentType
+import java.awt.Color
+import java.time.OffsetDateTime
 import java.util.logging.Level
 import java.util.regex.Pattern
 import net.kyori.adventure.text.*
@@ -236,36 +241,74 @@ class ShowItemCommand(plugin: ShowOff):
         0
 
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
-    if !context.discordPluginAvailable then return
-
-    val discordPlugin = DiscordSRV.getPlugin
-    // TODO: Allow server to decide which channel to send messages to
-    val discordChannel = discordPlugin.getMainTextChannel
-    if discordChannel == null then
-      plugin.getLogger
-        .warning("No Discord channel found. Could not relay show item message to Discord.")
-      return
     val config = plugin.getConfig()
-
-    val plainText = PlainTextComponentSerializer.plainText
-    val executorName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
-    val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
-      context,
-      plugin.getConfig.getBoolean("commands.showitem.show-original-name")
-    ))
-    val quantity = context.item.get.getAmount.toString
-
     val messageLoc = "commands.showitem.discord-message" + context.pluralItems.match
       case true  => ".plural"
       case false => ".single"
-    val messageFormat = config.getString(messageLoc)
 
-    val populatedMessage = MiniMessage.miniMessage.deserialize(
-      messageFormat,
-      Placeholder.unparsed("player", executorName),
-      Placeholder.unparsed("item", itemName),
-      Placeholder.unparsed("quantity", quantity)
+    val discordOutput: Either[(message: String, level: Level), Int] =
+      for
+        discordAvailable <- Option(context.discordPluginAvailable).filter { _.self }
+          .toRight(("Error: Discord plugin not available!", Level.SEVERE))
+        player <- context.executorAsPlayer
+          .toRight(("No show-off player found. Cannot relay message.", Level.WARNING))
+        discordChannel <- tryGetChannel(config).toRight(
+          ("No Discord channel found. Could not relay show item message to Discord.", Level.WARNING)
+        )
+        messageFormat <- Option(config.getString(messageLoc))
+          .toRight((s"Could not load config value at ${messageLoc}", Level.SEVERE))
+        item <- context.item.toRight(("No item found. Cannot relay message.", Level.WARNING))
+      yield
+        val plainText = PlainTextComponentSerializer.plainText
+        val executorName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
+        val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
+          context,
+          plugin.getConfig.getBoolean("commands.showitem.show-original-name")
+        ))
+        val quantity = item.getAmount.toString
+
+        val message = MiniMessage.miniMessage.deserialize(
+          messageFormat,
+          Placeholder.unparsed("player", executorName),
+          Placeholder.unparsed("item", itemName),
+          Placeholder.unparsed("quantity", quantity)
+        )
+        val plainMessage = stripStrTokens(plainText.serialize(message))
+
+        config.getBoolean("commands.showitem.use-embedded-message") match
+          case true  => embedMessage(discordChannel, player, plainMessage)
+          case false => DiscordUtil.queueMessage(discordChannel, plainMessage)
+        1
+
+    discordOutput match
+      case Left(log) => plugin.getLogger.log(log.level, log.message)
+      case Right(_)  => () // Main output is currently already handled
+
+  private def tryGetChannel(config: FileConfiguration): Option[TextChannel] = Option(
+    config.getString("commands.showitem.discord-channel")
+  ).fold(Option(DiscordSRV.getPlugin.getMainTextChannel)) { str =>
+    val channels = DiscordUtil.getJda.getTextChannelsByName(str, false).asScala
+    Option.unless(channels.isEmpty) { channels(0) }
+  }
+
+  private def embedMessage(channel: TextChannel, player: Player, message: String): Unit =
+    val bot = DiscordUtil.getJda.getSelfUser
+    val botName = channel.getGuild.getMember(bot).getNickname
+    val playerHeadUrl = DiscordSRV.getAvatarUrl(player)
+
+    val embed = MessageEmbed(
+      "",
+      DiscordUtil.translateEmotes(message),
+      "",
+      EmbedType.RICH,
+      OffsetDateTime.now(),
+      Color(0, 255, 0).getRGB, // TODO: Add color option to config
+      null,
+      Provider(botName, ""),
+      AuthorInfo(stripStrTokens(player.getDisplayName), "", playerHeadUrl, playerHeadUrl),
+      null,
+      null,
+      null,
+      null
     )
-
-    // TODO: Allow for message card support
-    DiscordUtil.queueMessage(discordChannel, plainText.serialize(populatedMessage))
+    DiscordUtil.queueMessage(channel, MessageBuilder(embed).build)
