@@ -10,7 +10,6 @@ import github.scarsz.discordsrv.dependencies.jda.api.MessageBuilder
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
 import io.papermc.paper.command.brigadier.{CommandSourceStack, Commands}
-import io.papermc.paper.command.brigadier.argument.CustomArgumentType
 import java.awt.Color
 import java.util.logging.Level
 import java.util.regex.Pattern
@@ -26,7 +25,6 @@ import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.entity.{Entity, Player}
 import org.bukkit.inventory.{Inventory, InventoryHolder, ItemStack}
-import scala.collection.mutable.ListBuffer
 import scala.jdk.CollectionConverters.*
 
 private def stripStrTokens(string: String): String =
@@ -186,12 +184,15 @@ class ShowItemCommand(plugin: ShowOff):
     clone.asHoverEvent
 
   // This will need a considerable revision for the lang update
-  private def getEmptyMessage(context: ShowItemContext): Component =
+  private def getEmptyMessage(context: ShowItemContext, targettingSlot: Boolean): Component =
     val msgColor = NamedTextColor.YELLOW
     val emptyMsg = context.isSelfSent match
       case true  => Component.text("You aren't ", msgColor)
       case false => context.executorName.append(Component.text(" isn't ", msgColor))
-    emptyMsg.append(Component.text("holding anything to show off!", msgColor))
+    val holdStr = targettingSlot match
+      case true => "holding anything in that slot to show off!"
+      case false => "holding anything to show off!"
+    emptyMsg.append(Component.text(holdStr, msgColor))
 
   private def tryGetShowMessageFormat(plural: Boolean)(using
     config: FileConfiguration
@@ -216,7 +217,7 @@ class ShowItemCommand(plugin: ShowOff):
         holder <- context.executorAsPlayer.toRight(CommandFail(
           Component.text("Error: Only players can show off items!", NamedTextColor.RED)
         ))
-        item <- context.item.toRight(CommandFail(getEmptyMessage(context)))
+        item <- context.item.toRight(CommandFail(getEmptyMessage(context, slot.isDefined)))
         showMessageFormat <- tryGetShowMessageFormat(context.pluralItems)
       yield
         val playerName = context.executorName
@@ -286,8 +287,8 @@ class ShowItemCommand(plugin: ShowOff):
   private def tryGetChannel()(using config: FileConfiguration): Option[TextChannel] = Option(
     config.getString("commands.showitem.discord-channel")
   ).fold(Option(DiscordSRV.getPlugin.getMainTextChannel)) { str =>
-    val channels = DiscordUtil.getJda.getTextChannelsByName(str, false).asScala
-    Option.unless(channels.isEmpty) { channels(0) }
+    val channels = DiscordUtil.getJda.getTextChannelsByName(str, false)
+    Option.unless(channels.isEmpty) { channels.get(0) }
   }
 
   private def embedMessage(channel: TextChannel, player: Player, message: String)(using
