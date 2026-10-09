@@ -190,7 +190,7 @@ class ShowItemCommand(plugin: ShowOff):
       case true  => Component.text("You aren't ", msgColor)
       case false => context.executorName.append(Component.text(" isn't ", msgColor))
     val holdStr = targettingSlot match
-      case true => "holding anything in that slot to show off!"
+      case true  => "holding anything in that slot to show off!"
       case false => "holding anything to show off!"
     emptyMsg.append(Component.text(holdStr, msgColor))
 
@@ -212,7 +212,7 @@ class ShowItemCommand(plugin: ShowOff):
     given config: FileConfiguration = plugin.getConfig()
     val context = ShowItemContext(ctx, slot)
 
-    val commandOutput: Either[CommandFail, Component] =
+    val commandOutput: Either[CommandFail, ShownItemEvent] =
       for
         holder <- context.executorAsPlayer.toRight(CommandFail(
           Component.text("Error: Only players can show off items!", NamedTextColor.RED)
@@ -227,19 +227,23 @@ class ShowItemCommand(plugin: ShowOff):
         val itemComp = createItemComponent(item, originalName)
         val quantityStr = item.getAmount.toString
 
-        parseMiniMsg(showMessageFormat, playerName, itemComp, quantityStr)
+        val message = parseMiniMsg(showMessageFormat, playerName, itemComp, quantityStr)
+        ShownItemEvent(holder, item, message)
 
     commandOutput match
-      case Right(message) =>
-        Bukkit.getServer.sendMessage(message)
-        if context.discordPluginAvailable && config.getBoolean("commands.showitem.send-to-discord")
-        then broadcastItemToDiscord(context)
+      case Right(showEvent) =>
+        if showEvent.callEvent then
+          Bukkit.getServer.sendMessage(showEvent.getMessage)
+          // Scheduled for removal when Lune Relay becomes more fleshed out
+          if context.discordPluginAvailable && config.getBoolean("commands.showitem.send-to-discord")
+          then broadcastItemToDiscord(context)
         1
       case Left(fail) =>
         context.sender.sendMessage(fail.feedback)
         fail.consoleLog.foreach { l => plugin.getLogger.log(l.level, l.log) }
         0
 
+  @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
     given config: FileConfiguration = plugin.getConfig()
     val messageLoc = "commands.showitem.discord-message" + context.pluralItems.match
@@ -276,7 +280,7 @@ class ShowItemCommand(plugin: ShowOff):
         val plainMessage = stripStrTokens(plainText.serialize(message))
 
         config.getBoolean("commands.showitem.use-embedded-message") match
-          case true  => embedMessage(discordChannel, player, plainMessage)
+          case true  => embedMessage(discordChannel, player, item, plainMessage)
           case false => DiscordUtil.queueMessage(discordChannel, plainMessage)
         1
 
@@ -284,6 +288,7 @@ class ShowItemCommand(plugin: ShowOff):
       case Left(log) => plugin.getLogger.log(log.level, log.message)
       case Right(_)  => () // Main output is currently already handled
 
+  @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def tryGetChannel()(using config: FileConfiguration): Option[TextChannel] = Option(
     config.getString("commands.showitem.discord-channel")
   ).fold(Option(DiscordSRV.getPlugin.getMainTextChannel)) { str =>
@@ -291,10 +296,12 @@ class ShowItemCommand(plugin: ShowOff):
     Option.unless(channels.isEmpty) { channels.get(0) }
   }
 
-  private def embedMessage(channel: TextChannel, player: Player, message: String)(using
-    config: FileConfiguration
+  @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
+  private def embedMessage(channel: TextChannel, player: Player, item: ItemStack, message: String)(
+    using config: FileConfiguration
   ): Unit =
-    val playerHeadUrl = DiscordSRV.getAvatarUrl(player)
+    val plainText = PlainTextComponentSerializer.plainText()
+    val playerHeadUrl = DiscordSRV.getAvatarUrl(player) // This never refreshes. Needs replacing.
 
     val defaultColor = Color(255, 255, 0)
     val color = Option(config.getString("commands.showitem.embed-color"))
@@ -303,10 +310,24 @@ class ShowItemCommand(plugin: ShowOff):
         catch e => defaultColor
       }
 
+    val lore = Option(item.lore).getOrElse(java.util.List.of).asScala
+    val loreText = lore.size > 0 match
+      case true => "### *Lore:*" + lore.foldLeft("") { (acc, curr) =>
+          acc + "\n" + stripStrTokens(plainText.serialize(curr))
+        } + "\n"
+      case false => ""
+
+    val enchants = Option(item.getEnchantments).getOrElse(java.util.Map.of).asScala
+    val enchantText = enchants.size > 0 match
+      case true => "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
+          acc + "\n● " + stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))
+        } + "\n"
+      case false => ""
+
     val embed = MessageEmbed(
       "",
       DiscordUtil.translateEmotes(message),
-      "-# *Show off your items with* `/showitem`",
+      loreText + enchantText + "\n-# *Show off your items with* `/showitem`",
       EmbedType.RICH,
       null,
       color.getRGB,

@@ -4,7 +4,7 @@ lazy val root = (project in file("."))
   .settings(
     name := "ShowOff",
     organization := "net.lunapixu",
-    version := "0.5.0",
+    version := "0.5.1-SNAPSHOT",
     artifactName := { (sv: ScalaVersion, module: ModuleID, artifact: Artifact) =>
       artifact.name + '-' + module.revision + '.' + artifact.extension
     }
