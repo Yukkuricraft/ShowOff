@@ -23,6 +23,7 @@ import net.kyori.adventure.text.serializer.plain.PlainTextComponentSerializer
 import org.bukkit.{Bukkit, Nameable}
 import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.FileConfiguration
+import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.{Entity, Player}
 import org.bukkit.inventory.{Inventory, InventoryHolder, ItemStack}
 import scala.jdk.CollectionConverters.*
@@ -33,7 +34,8 @@ private def stripStrTokens(string: String): String =
   stripPattern.matcher(string).replaceAll("")
 
 class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int])(using
-  config: FileConfiguration
+  config: FileConfiguration,
+  configPath: String
 ):
   val sender: CommandSender = ctx.getSource.getSender
   val senderAsPlayer: Option[Player] = sender match
@@ -55,7 +57,7 @@ class ShowItemContext(ctx: CommandContext[CommandSourceStack], slot: Option[Int]
 
   lazy val item: Option[ItemStack] = executorAsHolder.flatMap { holder => getItem(holder, slot) }
   lazy val pluralItems: Boolean = item match
-    case Some(i) => i.getAmount > 1 || config.getBoolean("commands.showitem.always-use-plural")
+    case Some(i) => i.getAmount > 1 || config.getBoolean(s"${configPath}.always-use-plural")
     case None    => false
   lazy val originalItemName: Option[Component] = item.flatMap { i => Some(getOriginalItemName(i)) }
   lazy val itemNameChanged: Boolean = (item, originalItemName) match
@@ -99,6 +101,8 @@ case class CommandFail(feedback: Component, consoleLog: Option[(log: String, lev
 type SlotAlias = (name: String, num: Option[Int])
 
 class ShowItemCommand(plugin: ShowOff):
+  private given configPath: String = "commands.showitem"
+
   private val slotNumName = "slot-number"
   private val altSlots: List[SlotAlias] = ("hand", None) :: ("offhand", Some(40)) ::
     ("head", Some(39)) :: ("chest", Some(38)) :: ("legs", Some(37)) :: ("feet", Some(36)) :: Nil
@@ -165,7 +169,7 @@ class ShowItemCommand(plugin: ShowOff):
     item: ItemStack,
     originalName: Component
   ): HoverEvent[ShowItem] =
-    val hoverText = plugin.getConfig.getString("commands.showitem.original-name-hovertext")
+    val hoverText = plugin.getConfig.getString(s"${configPath}.original-name-hovertext")
     /* If the hovertext config line was made empty/blank,
     stop prepending text and return the default hover event */
     if hoverText.trim == "" then return item.asHoverEvent
@@ -197,7 +201,7 @@ class ShowItemCommand(plugin: ShowOff):
   private def tryGetShowMessageFormat(plural: Boolean)(using
     config: FileConfiguration
   ): Either[CommandFail, String] =
-    val configLoc = "commands.showitem.message" + plural.match
+    val configLoc = s"${configPath}.message" + plural.match
       case true  => ".plural"
       case false => ".single"
     /* The returned Either obj would've been in the for comprehension of ShowEveryone,
@@ -221,7 +225,7 @@ class ShowItemCommand(plugin: ShowOff):
         showMessageFormat <- tryGetShowMessageFormat(context.pluralItems)
       yield
         val playerName = context.executorName
-        val useOriginalItemName = config.getBoolean("commands.showitem.show-original-name") &&
+        val useOriginalItemName = config.getBoolean(s"${configPath}.show-original-name") &&
           context.itemNameChanged
         val originalName = context.originalItemName.filter { _ => useOriginalItemName }
         val itemComp = createItemComponent(item, originalName)
@@ -235,7 +239,7 @@ class ShowItemCommand(plugin: ShowOff):
         if showEvent.callEvent then
           Bukkit.getServer.sendMessage(showEvent.getMessage)
           // Scheduled for removal when Lune Relay becomes more fleshed out
-          if context.discordPluginAvailable && config.getBoolean("commands.showitem.send-to-discord")
+          if context.discordPluginAvailable && config.getBoolean(s"${configPath}.send-to-discord")
           then broadcastItemToDiscord(context)
         1
       case Left(fail) =>
@@ -246,7 +250,7 @@ class ShowItemCommand(plugin: ShowOff):
   @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def broadcastItemToDiscord(context: ShowItemContext): Unit =
     given config: FileConfiguration = plugin.getConfig()
-    val messageLoc = "commands.showitem.discord-message" + context.pluralItems.match
+    val messageLoc = s"${configPath}.discord-message" + context.pluralItems.match
       case true  => ".plural"
       case false => ".single"
 
@@ -267,7 +271,7 @@ class ShowItemCommand(plugin: ShowOff):
         val executorName = DiscordUtil.escapeMarkdown(context.plainExecutorName)
         val itemName = DiscordUtil.escapeMarkdown(createPlainItemName(
           context,
-          plugin.getConfig.getBoolean("commands.showitem.show-original-name")
+          plugin.getConfig.getBoolean(s"${configPath}.show-original-name")
         ))
         val quantity = item.getAmount.toString
 
@@ -279,7 +283,7 @@ class ShowItemCommand(plugin: ShowOff):
         )
         val plainMessage = stripStrTokens(plainText.serialize(message))
 
-        config.getBoolean("commands.showitem.use-embedded-message") match
+        config.getBoolean(s"${configPath}.use-embedded-message") match
           case true  => embedMessage(discordChannel, player, item, plainMessage)
           case false => DiscordUtil.queueMessage(discordChannel, plainMessage)
         1
@@ -290,37 +294,48 @@ class ShowItemCommand(plugin: ShowOff):
 
   @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def tryGetChannel()(using config: FileConfiguration): Option[TextChannel] = Option(
-    config.getString("commands.showitem.discord-channel")
+    config.getString(s"${configPath}.discord-channel")
   ).fold(Option(DiscordSRV.getPlugin.getMainTextChannel)) { str =>
     val channels = DiscordUtil.getJda.getTextChannelsByName(str, false)
     Option.unless(channels.isEmpty) { channels.get(0) }
   }
 
   @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
+  private def getPlayerHeadUrl(player: Player): String =
+    s"https://api.mcheads.org/ioshead/${player.getUniqueId}/right/128.png"
+
+  private def getSortedEnchants(item: ItemStack): List[(Enchantment, Integer)] =
+    val plainText = PlainTextComponentSerializer.plainText()
+    // I feel like this collection conversion could be better done...
+    Option(item.getEnchantments).getOrElse(java.util.Map.of).asScala.toList.sortWith { (x, y) =>
+      plainText.serialize(x._1.displayName(1)).compareTo(plainText.serialize(y._1.displayName(1))) <
+        0
+    }
+
+  @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def embedMessage(channel: TextChannel, player: Player, item: ItemStack, message: String)(
     using config: FileConfiguration
   ): Unit =
     val plainText = PlainTextComponentSerializer.plainText()
-    val playerHeadUrl = DiscordSRV.getAvatarUrl(player) // This never refreshes. Needs replacing.
+    val playerHeadUrl = getPlayerHeadUrl(player)
 
     val defaultColor = Color(255, 255, 0)
-    val color = Option(config.getString("commands.showitem.embed-color"))
-      .fold(defaultColor) { str =>
-        try Color.decode(str)
-        catch e => defaultColor
-      }
+    val color = Option(config.getString(s"${configPath}.embed-color")).fold(defaultColor) { str =>
+      try Color.decode(str)
+      catch e => defaultColor
+    }
 
     val lore = Option(item.lore).getOrElse(java.util.List.of).asScala
     val loreText = lore.size > 0 match
       case true => "### *Lore:*" + lore.foldLeft("") { (acc, curr) =>
-          acc + "\n" + stripStrTokens(plainText.serialize(curr))
+          acc + s"\n${stripStrTokens(plainText.serialize(curr))}"
         } + "\n"
       case false => ""
 
-    val enchants = Option(item.getEnchantments).getOrElse(java.util.Map.of).asScala
+    val enchants = getSortedEnchants(item)
     val enchantText = enchants.size > 0 match
       case true => "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
-          acc + "\n● " + stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))
+          acc + s"\n● ${stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))}"
         } + "\n"
       case false => ""
 
