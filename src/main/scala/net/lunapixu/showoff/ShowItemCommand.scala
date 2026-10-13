@@ -204,7 +204,7 @@ class ShowItemCommand(plugin: ShowOff):
     val configLoc = s"${configPath}.message" + plural.match
       case true  => ".plural"
       case false => ".single"
-    /* The returned Either obj would've been in the for comprehension of ShowEveryone,
+    /* The returned Either obj would've been in the for comprehension of showEveryone(),
     however the configLoc string only exists here */
     Option(config.getString(configLoc)).toRight(CommandFail(
       Component
