@@ -312,6 +312,31 @@ class ShowItemCommand(plugin: ShowOff):
         0
     }
 
+  @Deprecated(forRemoval = true, since = "0.5.2") // Scheduled for removal when Lune Relay becomes more fleshed out
+  private def makeEnchantList(enchants: List[(Enchantment, Integer)]): String =
+    if enchants.size == 0 then return ""
+
+    val plainText = PlainTextComponentSerializer.plainText
+    "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
+      acc + s"\n● ${stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))}"
+    } + "\n"
+
+  @Deprecated(forRemoval = true, since = "0.5.2") // Scheduled for removal when Lune Relay becomes more fleshed out
+  private def getLoreText(item: ItemStack)(using config: FileConfiguration): String =
+    val lore = Option(item.lore).getOrElse(java.util.List.of).asScala.toList
+    if lore.size == 0 then return ""
+
+    val plainText = PlainTextComponentSerializer.plainText
+    val truncLore = lore.take(config.getInt(s"${configPath}.max-lore-lines", 6))
+    val loreList = truncLore.foldLeft("") { (acc, curr) =>
+      acc + DiscordUtil.escapeMarkdown(s"\n${stripStrTokens(plainText.serialize(curr))}")
+    }
+
+    "### *Lore:*" + loreList + (truncLore.size < lore.size).match
+      case true  => "\n*[...]*"
+      case false => ""
+    + "\n"
+
   @Deprecated(forRemoval = true, since = "0.5.1") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def embedMessage(channel: TextChannel, player: Player, item: ItemStack, message: String)(
     using config: FileConfiguration
@@ -325,19 +350,8 @@ class ShowItemCommand(plugin: ShowOff):
       catch e => defaultColor
     }
 
-    val lore = Option(item.lore).getOrElse(java.util.List.of).asScala
-    val loreText = lore.size > 0 match
-      case true => "### *Lore:*" + lore.foldLeft("") { (acc, curr) =>
-          acc + s"\n${stripStrTokens(plainText.serialize(curr))}"
-        } + "\n"
-      case false => ""
-
-    val enchants = getSortedEnchants(item)
-    val enchantText = enchants.size > 0 match
-      case true => "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
-          acc + s"\n● ${stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))}"
-        } + "\n"
-      case false => ""
+    val loreText = getLoreText(item)
+    val enchantText = makeEnchantList(getSortedEnchants(item))
 
     val embed = MessageEmbed(
       "",

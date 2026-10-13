@@ -32,3 +32,4 @@ commands:
         # Use the Discord embedded message style for showing off items.
         use-embedded-message: false
         embed-color: "#ffff00"
+        max-lore-lines: 6
