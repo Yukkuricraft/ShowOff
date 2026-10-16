@@ -25,7 +25,7 @@ import org.bukkit.command.CommandSender
 import org.bukkit.configuration.file.FileConfiguration
 import org.bukkit.enchantments.Enchantment
 import org.bukkit.entity.{Entity, Player}
-import org.bukkit.inventory.{Inventory, InventoryHolder, ItemStack}
+import org.bukkit.inventory.{Inventory, InventoryHolder, ItemFlag, ItemStack}
 import scala.jdk.CollectionConverters.*
 
 private def stripStrTokens(string: String): String =
@@ -313,13 +313,18 @@ class ShowItemCommand(plugin: ShowOff):
     }
 
   @Deprecated(forRemoval = true, since = "0.5.2") // Scheduled for removal when Lune Relay becomes more fleshed out
-  private def makeEnchantList(enchants: List[(Enchantment, Integer)]): String =
-    if enchants.size == 0 then return ""
-
-    val plainText = PlainTextComponentSerializer.plainText
-    "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
-      acc + s"\n● ${stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))}"
-    } + "\n"
+  private def makeEnchantList(item: ItemStack): String =
+    val enchantList: Either[None.type, String] =
+      for
+        showEnchants: Boolean <- Option(!item.hasItemFlag(ItemFlag.HIDE_ENCHANTS)).filter { _.self }
+          .toRight(None)
+        enchants <- Option(getSortedEnchants(item)).filter { _.size > 0 }.toRight(None)
+      yield
+        val plainText = PlainTextComponentSerializer.plainText
+        "### *Enchants:*" + enchants.foldLeft("") { (acc, curr) =>
+          acc + s"\n● ${stripStrTokens(plainText.serialize(curr._1.displayName(curr._2)))}"
+        } + "\n"
+    enchantList.getOrElse("")
 
   @Deprecated(forRemoval = true, since = "0.5.2") // Scheduled for removal when Lune Relay becomes more fleshed out
   private def getLoreText(item: ItemStack)(using config: FileConfiguration): String =
@@ -351,12 +356,18 @@ class ShowItemCommand(plugin: ShowOff):
     }
 
     val loreText = getLoreText(item)
-    val enchantText = makeEnchantList(getSortedEnchants(item))
+    val enchantText = makeEnchantList(item)
+    val unbreakableTag = (
+      item.hasItemFlag(ItemFlag.HIDE_UNBREAKABLE),
+      item.getItemMeta.isUnbreakable
+    ) match
+      case (true, _) | (false, false) => ""
+      case (false, true)              => "### **UNBREAKABLE**"
 
     val embed = MessageEmbed(
       "",
       DiscordUtil.translateEmotes(message),
-      loreText + enchantText + "\n-# *Show off your items with* `/showitem`",
+      loreText + enchantText + unbreakableTag + "\n-# *Show off your items with* `/showitem`",
       EmbedType.RICH,
       null,
       color.getRGB,
