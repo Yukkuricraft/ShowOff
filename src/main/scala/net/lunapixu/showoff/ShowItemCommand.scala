@@ -5,7 +5,7 @@ import com.mojang.brigadier.builder.LiteralArgumentBuilder
 import com.mojang.brigadier.context.CommandContext
 import com.mojang.brigadier.Command
 import github.scarsz.discordsrv.dependencies.jda.api.entities.{EmbedType, MessageEmbed, TextChannel}
-import github.scarsz.discordsrv.dependencies.jda.api.entities.MessageEmbed.AuthorInfo
+import github.scarsz.discordsrv.dependencies.jda.api.entities.MessageEmbed.{AuthorInfo, Thumbnail}
 import github.scarsz.discordsrv.dependencies.jda.api.MessageBuilder
 import github.scarsz.discordsrv.util.DiscordUtil
 import github.scarsz.discordsrv.DiscordSRV
@@ -355,14 +355,16 @@ class ShowItemCommand(plugin: ShowOff):
       catch e => defaultColor
     }
 
+    val itemId = item.getType.getKey.asString
+    val thumbSize = 64
+    val itemThumb = s"https://blocksitems.com/api/v1/items/${itemId}/icon?size=${thumbSize}"
+
     val loreText = getLoreText(item)
     val enchantText = makeEnchantList(item)
-    val unbreakableTag = (
-      item.hasItemFlag(ItemFlag.HIDE_UNBREAKABLE),
-      item.getItemMeta.isUnbreakable
-    ) match
-      case (true, _) | (false, false) => ""
-      case (false, true)              => "### **UNBREAKABLE**"
+    val unbreakableTag =
+      (item.hasItemFlag(ItemFlag.HIDE_UNBREAKABLE), item.getItemMeta.isUnbreakable) match
+        case (true, _) | (false, false) => ""
+        case (false, true)              => "### *UNBREAKABLE*"
 
     val embed = MessageEmbed(
       "",
@@ -371,7 +373,7 @@ class ShowItemCommand(plugin: ShowOff):
       EmbedType.RICH,
       null,
       color.getRGB,
-      null,
+      Thumbnail(itemThumb, itemThumb, thumbSize, thumbSize),
       null,
       AuthorInfo(stripStrTokens(player.getDisplayName), "", playerHeadUrl, playerHeadUrl),
       null,
